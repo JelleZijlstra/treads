@@ -389,9 +389,14 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
       draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to start over...");
     } else {
-      draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
-          "You have %" PRId64 " %s remaining", player_lives,
-          (player_lives == 1) ? "life" : "lives");
+      if (level_index != 0) {
+        draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+            "You have %" PRId64 " %s remaining", player_lives,
+            (player_lives == 1) ? "life" : "lives");
+      } else {
+        draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+            "You have unlimited lives on level 0");
+      }
       draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to try again...");
     }
@@ -598,7 +603,10 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
     } else if (key == GLFW_KEY_ENTER) {
       if (phase == Phase::Playing) {
         if (game->get_player()->death_frame >= 0) {
-          if (player_lives == 0) {
+          if (level_index == 0) {
+            // you have infinite lives on level 0
+            player_lives = 3;
+          } else if (player_lives == 0) {
             level_index = 0;
             player_lives = 3;
             frames_until_next_level = 0; // don't allow player to enter next level
