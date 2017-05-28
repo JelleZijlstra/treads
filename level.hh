@@ -4,6 +4,7 @@
 #include <phosg/Strings.hh>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 
@@ -18,6 +19,8 @@ enum Impulse {
 };
 
 Impulse opposite_direction(Impulse i);
+Impulse collapse_direction(int64_t impulses);
+std::pair<int64_t, int64_t> offsets_for_direction(Impulse direction);
 
 enum Event {
   NoEvents         = 0x0000,
@@ -214,6 +217,9 @@ public:
           int64_t lives = 0, BlockSpecial bonus = BlockSpecial::None);
     };
     std::vector<ScoreInfo> scores;
+
+    FrameEvents();
+    FrameEvents& operator|=(const FrameEvents& other);
   };
   FrameEvents exec_frame(int64_t player_control_impulse);
 
@@ -231,6 +237,8 @@ private:
 
   // checks if the given position is a multiple of the grid pitch
   bool is_aligned(int64_t pos) const;
+  // checks if the given position is within the level
+  bool is_within_bounds(int64_t x, int64_t y) const;
 
   // finds the block at the given exact position
   std::shared_ptr<Block> find_block(int64_t x, int64_t y);
@@ -245,4 +253,11 @@ private:
   bool check_moving_collision(int64_t this_x, int64_t this_y,
       int64_t this_x_speed, int64_t this_y_speed, int64_t other_x,
       int64_t other_y) const;
+
+  // pushes or destroys a block
+  FrameEvents apply_push_impulse(std::shared_ptr<Block> block,
+      std::shared_ptr<Monster> responsible_monster, Impulse direction,
+      int64_t speed);
+  // kaboom
+  FrameEvents apply_explosion(std::shared_ptr<Block> block);
 };

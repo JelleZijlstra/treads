@@ -7,6 +7,7 @@
 #include <phosg/Strings.hh>
 #include <random>
 #include <stdexcept>
+#include <vector>
 
 using namespace std;
 
@@ -24,6 +25,13 @@ static int64_t sgn(int64_t x) {
     return (0 < x) - (x < 0);
 }
 
+static const vector<Impulse> all_directions({
+  Impulse::Left,
+  Impulse::Right,
+  Impulse::Down,
+  Impulse::Up,
+});
+
 Impulse opposite_direction(Impulse i) {
   if (i == Impulse::Left) {
     return Impulse::Right;
@@ -40,7 +48,7 @@ Impulse opposite_direction(Impulse i) {
   return Impulse::None;
 }
 
-static Impulse collapse_direction(int64_t impulses) {
+Impulse collapse_direction(int64_t impulses) {
   if (impulses & Impulse::Left) {
     return Impulse::Left;
   }
@@ -54,6 +62,19 @@ static Impulse collapse_direction(int64_t impulses) {
     return Impulse::Down;
   }
   return Impulse::None;
+}
+
+pair<int64_t, int64_t> offsets_for_direction(Impulse direction) {
+  if (direction == Impulse::Left) {
+    return make_pair(-1, 0);
+  } else if (direction == Impulse::Right) {
+    return make_pair(1, 0);
+  } else if (direction == Impulse::Up) {
+    return make_pair(0, -1);
+  } else if (direction == Impulse::Down) {
+    return make_pair(0, 1);
+  }
+  throw invalid_argument("direction is not valid");
 }
 
 BlockSpecial special_for_name(const char* name) {
@@ -416,6 +437,7 @@ LevelState::LevelState(const GenerationParameters& params) :
         case BlockSpecial::None:
           break; // just leave this out of the map, doofus
 
+        case BlockSpecial::Bomb:
         case BlockSpecial::Points:
         case BlockSpecial::ExtraLife:
         case BlockSpecial::Invincibility:
@@ -437,9 +459,6 @@ LevelState::LevelState(const GenerationParameters& params) :
         case BlockSpecial::Bouncy:
           block->set_flags(Block::Flag::Bouncy);
           break;
-
-        case BlockSpecial::Bomb:
-          throw runtime_error("bombs are not implemented");
 
         case BlockSpecial::CreatesMonsters:
           throw runtime_error("monster generators are not implemented");
@@ -570,6 +589,11 @@ bool LevelState::is_aligned(int64_t pos) const {
   return (pos % this->grid_pitch) == 0;
 }
 
+bool LevelState::is_within_bounds(int64_t x, int64_t y) const {
+  return (x >= 0) && (x <= this->w - this->grid_pitch) &&
+         (y >= 0) && (y <= this->h - this->grid_pitch);
+}
+
 shared_ptr<Block> LevelState::find_block(int64_t x, int64_t y) {
   for (auto& block : this->blocks) {
     if ((block->x == x) && (block->y == y)) {
@@ -651,6 +675,16 @@ LevelState::FrameEvents::ScoreInfo::ScoreInfo(shared_ptr<Monster> monster,
     shared_ptr<Monster> killed, int64_t score, int64_t lives,
     BlockSpecial bonus) : score(score), lives(lives), bonus(bonus),
     monster(monster), killed(killed) { }
+
+LevelState::FrameEvents::FrameEvents() : events_mask(0) { }
+
+LevelState::FrameEvents& LevelState::FrameEvents::operator|=(
+    const FrameEvents& other) {
+  this->events_mask |= other.events_mask;
+  this->scores.insert(this->scores.end(), other.scores.begin(),
+      other.scores.end());
+  return *this;
+}
 
 LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
   // executes a single frame. the order of actions is as follows:
@@ -805,21 +839,9 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
 
     // (2.3) check if there's a block in the appropriate spot
-    int64_t x_offset = 0, y_offset = 0;
-    if (monster->facing_direction == Impulse::Left) {
-      x_offset = -this->grid_pitch;
-      y_offset = 0;
-    } else if (monster->facing_direction == Impulse::Right) {
-      x_offset = this->grid_pitch;
-      y_offset = 0;
-    } else if (monster->facing_direction == Impulse::Up) {
-      x_offset = 0;
-      y_offset = -this->grid_pitch;
-    } else if (monster->facing_direction == Impulse::Down) {
-      x_offset = 0;
-      y_offset = this->grid_pitch;
-    }
-    auto block = this->find_block(monster->x + x_offset, monster->y + y_offset);
+    auto offsets = offsets_for_direction(monster->facing_direction);
+    auto block = this->find_block(monster->x + offsets.first * this->grid_pitch,
+                                  monster->y + offsets.second * this->grid_pitch);
     if (!block.get()) {
       continue; // there's no block to push
     }
@@ -830,46 +852,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
 
     // (2.5) check if there's space behind the block; push it if so
-    if ((block->has_flags(Block::Flag::Pushable)) &&
-        this->space_is_empty(monster->x + 2 * x_offset, monster->y + 2 * y_offset)) {
-      block->x_speed = (x_offset / this->grid_pitch) * monster->push_speed;
-      block->y_speed = (y_offset / this->grid_pitch) * monster->push_speed;
-      block->owner = monster;
-      block->monsters_killed_this_push = 0;
-      ret.events_mask |= Event::BlockPushed;
-    } else if ((block->has_flags(Block::Flag::Destructible)) &&
-               (block->decay_rate == 0.0)) {
-      block->decay_rate = monster->block_destroy_rate;
-      switch (block->special) {
-        case BlockSpecial::Indestructible:
-          throw logic_error("indestructible block was destroyed");
-        case BlockSpecial::Bomb:
-          throw logic_error("bomb block was destroyed");
-
-        case BlockSpecial::Points:
-          ret.scores.emplace_back(monster, nullptr, 100);
-        case BlockSpecial::None:
-        case BlockSpecial::Immovable:
-        case BlockSpecial::Bouncy:
-          ret.events_mask |= Event::BlockDestroyed;
-          break;
-
-        case BlockSpecial::ExtraLife:
-          ret.scores.emplace_back(monster, nullptr, 0, 1);
-          ret.events_mask |= Event::LifeCollected;
-          break;
-
-        case BlockSpecial::Invincibility:
-        case BlockSpecial::Speed:
-        case BlockSpecial::TimeStop:
-        case BlockSpecial::ThrowBombs:
-        case BlockSpecial::KillsMonsters:
-          monster->add_special(block->special, 300);
-          ret.scores.emplace_back(monster, nullptr, 0, 0, block->special);
-        case BlockSpecial::CreatesMonsters:
-          ret.events_mask |= Event::BonusCollected;
-      }
-    }
+    ret |= this->apply_push_impulse(block, monster, monster->facing_direction,
+        monster->push_speed);
   }
 
   // (step 3) update decaying blocks
@@ -1010,6 +994,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     if (!collision) {
       block->x += block->x_speed;
       block->y += block->y_speed;
+
+    // (5.4.1) if the block collided and is a bomb and is aligned, it explodes
+    } else if ((block->special == BlockSpecial::Bomb) && this->is_aligned(block->x) && this->is_aligned(block->y)) {
+      ret |= this->apply_explosion(block);
     }
   }
 
@@ -1193,5 +1181,103 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
   // increment frame counter and return the event mask
   this->frames_executed++;
+  return ret;
+}
+
+LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
+    shared_ptr<Monster> responsible_monster, Impulse direction, int64_t speed) {
+  LevelState::FrameEvents ret;
+
+  block->owner = responsible_monster;
+
+  auto offsets = offsets_for_direction(direction);
+  if ((block->has_flags(Block::Flag::Pushable)) &&
+      this->space_is_empty(block->x + offsets.first * this->grid_pitch,
+                           block->y + offsets.second * this->grid_pitch)) {
+    block->x_speed = offsets.first * speed;
+    block->y_speed = offsets.second * speed;
+    block->monsters_killed_this_push = 0;
+    ret.events_mask |= Event::BlockPushed;
+
+  } else if ((block->has_flags(Block::Flag::Destructible)) &&
+             (block->decay_rate == 0.0)) {
+    block->decay_rate = responsible_monster->block_destroy_rate;
+    switch (block->special) {
+      case BlockSpecial::Indestructible:
+        throw logic_error("indestructible block was destroyed");
+
+      case BlockSpecial::Bomb:
+        ret |= this->apply_explosion(block);
+        break;
+
+      case BlockSpecial::Points:
+        if (responsible_monster.get()) {
+          ret.scores.emplace_back(responsible_monster, nullptr, 100);
+        }
+      case BlockSpecial::None:
+      case BlockSpecial::Immovable:
+      case BlockSpecial::Bouncy:
+        ret.events_mask |= Event::BlockDestroyed;
+        break;
+
+      case BlockSpecial::ExtraLife:
+        if (responsible_monster.get()) {
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 1);
+        }
+        ret.events_mask |= Event::LifeCollected;
+        break;
+
+      case BlockSpecial::Invincibility:
+      case BlockSpecial::Speed:
+      case BlockSpecial::TimeStop:
+      case BlockSpecial::ThrowBombs:
+      case BlockSpecial::KillsMonsters:
+        if (responsible_monster.get()) {
+          responsible_monster->add_special(block->special, 300);
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, block->special);
+        }
+      case BlockSpecial::CreatesMonsters:
+        ret.events_mask |= Event::BonusCollected;
+    }
+  }
+
+  return ret;
+}
+
+LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
+  FrameEvents ret;
+
+  if (block->integrity <= 0.0) {
+    return ret;
+  }
+
+  // hack: set the bomb block's integrity to zeror so it gets deleted on the
+  // next frame
+  block->integrity = 0.0;
+  ret.events_mask |= Event::Explosion;
+
+  for (auto direction : all_directions) {
+    auto offsets = offsets_for_direction(direction);
+    int64_t target_x = block->x + offsets.first * this->grid_pitch;
+    int64_t target_y = block->y + offsets.second * this->grid_pitch;
+    if (!this->is_within_bounds(target_x, target_y)) {
+      continue;
+    }
+
+    auto target_block = this->find_block(target_x, target_y);
+    if (target_block.get()) {
+      if (!target_block->x_speed || !target_block->y_speed) {
+        // TODO: there should be a global explosion push speed here; we
+        // shouldn't use the monster's push speed or a hardcoded constant
+        int64_t speed = block->owner.get() ? block->owner->push_speed : 8;
+        ret |= this->apply_push_impulse(target_block, block->owner, direction, speed);
+      }
+    } else {
+      // TODO: kill monsters
+      // note that we don't check for monsters if there was a block, since
+      // monsters and blocks can't occupy the same space
+    }
+  }
+
   return ret;
 }
