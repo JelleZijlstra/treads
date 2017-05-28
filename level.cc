@@ -864,30 +864,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         case BlockSpecial::TimeStop:
         case BlockSpecial::ThrowBombs:
         case BlockSpecial::KillsMonsters:
+          monster->add_special(block->special, 300);
           ret.scores.emplace_back(monster, nullptr, 0, 0, block->special);
         case BlockSpecial::CreatesMonsters:
           ret.events_mask |= Event::BonusCollected;
-      }
-
-      switch (block->special) {
-        case BlockSpecial::None:
-        case BlockSpecial::Bouncy:
-        case BlockSpecial::Immovable:
-        case BlockSpecial::CreatesMonsters:
-        case BlockSpecial::Points:
-          break;
-        case BlockSpecial::ExtraLife:
-          // TODO
-          break;
-        case BlockSpecial::Invincibility:
-        case BlockSpecial::Speed:
-        case BlockSpecial::TimeStop:
-        case BlockSpecial::ThrowBombs:
-        case BlockSpecial::KillsMonsters:
-          monster->add_special(block->special, 300);
-          break;
-        default:
-          throw logic_error("invalid block special");
       }
     }
   }
