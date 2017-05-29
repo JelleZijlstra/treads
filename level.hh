@@ -136,6 +136,7 @@ struct Block {
   int64_t monsters_killed_this_push;
 
   int64_t bounce_speed_absorption;
+  int64_t bomb_speed;
 
   float decay_rate; // [0, 1]
   float integrity; // [0, 1]; when it reaches 0 the block is deleted
@@ -179,6 +180,7 @@ public:
     int64_t basic_monster_move_speed;
     int64_t power_monster_move_speed;
     int64_t push_speed;
+    int64_t bomb_speed;
     int64_t bounce_speed_absorption;
     float block_destroy_rate;
   };
@@ -209,12 +211,15 @@ public:
       int64_t score;
       int64_t lives;
       BlockSpecial bonus;
+      int64_t block_x;
+      int64_t block_y;
       std::shared_ptr<Monster> monster;
       std::shared_ptr<Monster> killed; // may be NULL (if score came from a bonus)
 
       ScoreInfo(std::shared_ptr<Monster> monster,
           std::shared_ptr<Monster> killed = NULL, int64_t score = 0,
-          int64_t lives = 0, BlockSpecial bonus = BlockSpecial::None);
+          int64_t lives = 0, BlockSpecial bonus = BlockSpecial::None,
+          int64_t block_x = 0, int64_t block_y = 0);
     };
     std::vector<ScoreInfo> scores;
 

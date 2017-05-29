@@ -92,51 +92,51 @@ static void render_block(shared_ptr<const LevelState> game,
     case BlockSpecial::None:
       break;
     case BlockSpecial::Points:
-      glColor4f(1, 1, 0, 1);
+      glColor4f(1, 1, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::ExtraLife:
-      glColor4f(0, 1, 1, 1);
+      glColor4f(0, 1, 1, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Invincibility:
-      glColor4f(0, 1, 0, 1);
+      glColor4f(0, 1, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Speed:
-      glColor4f(0, 0, 1, 1);
+      glColor4f(0, 0, 1, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::TimeStop:
-      glColor4f(1, 0, 1, 1);
+      glColor4f(1, 0, 1, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::ThrowBombs:
-      glColor4f(1, 0.5, 0, 1);
+      glColor4f(1, 0.5, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::KillsMonsters:
-      glColor4f(1, 0, 0, 1);
+      glColor4f(1, 0, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Indestructible:
-      glColor4f(0.5, 0.5, 0.5, 1);
+      glColor4f(0.5, 0.5, 0.5, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Immovable:
-      glColor4f(0, 0, 0, 1);
+      glColor4f(0, 0, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Bouncy:
-      glColor4f(0, 0.5, 1, 1);
+      glColor4f(0, 0.5, 1, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::Bomb:
-      glColor4f(0.5, 0.25, 0, 1);
+      glColor4f(0.5, 0.25, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
     case BlockSpecial::CreatesMonsters:
-      glColor4f(0.6, 0, 0, 1);
+      glColor4f(0.6, 0, 0, block->integrity);
       aligned_rect(box_x1, box_x2, box_y1, box_y2);
       break;
   }
@@ -523,6 +523,7 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     defaults.basic_monster_move_speed = defaults_json->at("basic_monster_move_speed")->as_int();
     defaults.power_monster_move_speed = defaults_json->at("power_monster_move_speed")->as_int();
     defaults.push_speed = defaults_json->at("push_speed")->as_int();
+    defaults.bomb_speed = defaults_json->at("bomb_speed")->as_int();
     defaults.bounce_speed_absorption = defaults_json->at("bounce_speed_absorption")->as_int();
     defaults.block_destroy_rate = defaults_json->at("block_destroy_rate")->as_float();
     defaults.special_type_to_count = parse_special_counts_dict(
@@ -552,6 +553,7 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     params.basic_monster_move_speed = json_get_default_int(level_json, "basic_monster_move_speed", defaults.basic_monster_move_speed);
     params.power_monster_move_speed = json_get_default_int(level_json, "power_monster_move_speed", defaults.power_monster_move_speed);
     params.push_speed = json_get_default_int(level_json, "push_speed", defaults.push_speed);
+    params.bomb_speed = json_get_default_int(level_json, "bomb_speed", defaults.bomb_speed);
     params.bounce_speed_absorption = json_get_default_int(level_json, "bounce_speed_absorption", defaults.bounce_speed_absorption);
     params.player_squishable = json_get_default_bool(level_json, "player_squishable", defaults.player_squishable);
     params.power_monsters_can_push = json_get_default_bool(level_json, "power_monsters_can_push", defaults.player_squishable);
@@ -796,14 +798,11 @@ int main(int argc, char* argv[]) {
                 player_lives += score.lives;
               }
 
-              float annotation_x, annotation_y;
-              shared_ptr<Monster> position_monster = score.killed.get() ?
-                  score.killed : score.monster;
-              annotation_x = to_window(position_monster->x + game->get_grid_pitch() / 2, game->get_w());
-              annotation_y = -to_window(position_monster->y + game->get_grid_pitch() / 2, game->get_h());
-
               if (!score.killed.get()) {
                 // this score came from a bonus block
+                float annotation_x = to_window(score.block_x + game->get_grid_pitch() / 2, game->get_w());
+                float annotation_y = -to_window(score.block_y + game->get_grid_pitch() / 2, game->get_h());
+
                 if (score.bonus != BlockSpecial::None) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
                       0, 1, 0, 2, 1, 0.007, display_name_for_special(score.bonus)));
@@ -817,9 +816,15 @@ int main(int argc, char* argv[]) {
               } else if (score.killed.get() && (
                   (score.killed->has_flags(Monster::Flag::IsPlayer)) ||
                   (score.killed == score.monster))) {
+                float annotation_x = to_window(score.killed->x + game->get_grid_pitch() / 2, game->get_w());
+                float annotation_y = -to_window(score.killed->y + game->get_grid_pitch() / 2, game->get_h());
                 annotations.emplace(new Annotation(annotation_x, annotation_y,
                     1, 0.5, 0, 2, 1, 0.007, "oh no!"));
               } else {
+                shared_ptr<Monster> position_monster = score.killed.get() ?
+                    score.killed : score.monster;
+                float annotation_x = to_window(position_monster->x + game->get_grid_pitch() / 2, game->get_w());
+                float annotation_y = -to_window(position_monster->y + game->get_grid_pitch() / 2, game->get_h());
                 if (score.lives) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
                       0, 1, 0, 2, 1, 0.007, string_printf("%dUP", score.lives)));

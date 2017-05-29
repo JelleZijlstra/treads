@@ -240,7 +240,8 @@ bool Monster::has_special(BlockSpecial special) const {
 void Monster::add_special(BlockSpecial special, int64_t frames) {
   switch (special) {
     case BlockSpecial::TimeStop:
-      // this doesn't affect the monster's flags/params at all
+    case BlockSpecial::ThrowBombs:
+      // these don't affect the monster's flags/params at all
       break;
     case BlockSpecial::Invincibility:
       this->set_flags(Monster::Flag::Invincible);
@@ -278,6 +279,10 @@ void Monster::attenuate_and_delete_specials() {
     special_it->second--;
     if (special_it->second == 0) {
       switch (special_it->first) {
+        case BlockSpecial::TimeStop:
+        case BlockSpecial::ThrowBombs:
+          // these don't affect the monster's flags/params at all
+          break;
         case BlockSpecial::KillsMonsters:
           this->clear_flags(Monster::Flag::KillsMonsters);
           break;
@@ -287,9 +292,6 @@ void Monster::attenuate_and_delete_specials() {
         case BlockSpecial::Speed:
           this->move_speed /= 2;
           this->push_speed /= 2;
-          break;
-        case BlockSpecial::TimeStop:
-          // this doesn't affect the monster's flags/params at all
           break;
         default:
           throw logic_error("unimplemented special removal action");
@@ -395,6 +397,7 @@ LevelState::LevelState(const GenerationParameters& params) :
       if (params.block_map[z]) {
         auto& block = *this->blocks.emplace(new Block(x * this->grid_pitch, y * this->grid_pitch)).first;
         block->bounce_speed_absorption = params.bounce_speed_absorption;
+        block->bomb_speed = params.bomb_speed;
       }
     }
   }
@@ -673,7 +676,8 @@ bool LevelState::check_moving_collision(int64_t this_x, int64_t this_y,
 
 LevelState::FrameEvents::ScoreInfo::ScoreInfo(shared_ptr<Monster> monster,
     shared_ptr<Monster> killed, int64_t score, int64_t lives,
-    BlockSpecial bonus) : score(score), lives(lives), bonus(bonus),
+    BlockSpecial bonus, int64_t block_x, int64_t block_y) : score(score),
+    lives(lives), bonus(bonus), block_x(block_x), block_y(block_y),
     monster(monster), killed(killed) { }
 
 LevelState::FrameEvents::FrameEvents() : events_mask(0) { }
@@ -821,9 +825,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
     // the following conditions must be satisfied for a monster to push a block:
     // 1. the monster has a Push control impulse
-    // 2. the monster's position is currently aligned
-    // 3. there is a block in the next aligned position in the direction the
+    // 2. there is a block in the next aligned position in the direction the
     //    monster is facing
+    // 3. the monster's position is currently aligned (this happens after the
+    //    previous check since monsters may throw bombs when not aligned)
     // 4. this block is not already moving
     // if all of the above are satisfied, the block is pushed only if the entire
     // space beyond it is empty; otherwise, the block is destroyed.
@@ -833,17 +838,34 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       continue;
     }
 
-    // (2.2) check if the monster's position is aligned
-    if (!this->is_aligned(monster->x) || !this->is_aligned(monster->y)) {
-      continue;
-    }
-
-    // (2.3) check if there's a block in the appropriate spot
+    // (2.2) check if there's a block in the appropriate spot
     auto offsets = offsets_for_direction(monster->facing_direction);
     auto block = this->find_block(monster->x + offsets.first * this->grid_pitch,
                                   monster->y + offsets.second * this->grid_pitch);
     if (!block.get()) {
+      // (2.2.1) no block; the monster throws a bomb if it has ThrowBombs and
+      // there are two empty cells in front of it
+      // TODO: do this more efficiently by not calling space_is_empty (and
+      // iterating all blocks) twice
+      if (monster->has_special(BlockSpecial::ThrowBombs) &&
+          this->space_is_empty(monster->x + offsets.first * this->grid_pitch,
+                               monster->y + offsets.second * this->grid_pitch) &&
+          this->space_is_empty(monster->x + offsets.first * 2 * this->grid_pitch,
+                               monster->y + offsets.second * 2 * this->grid_pitch)) {
+        int64_t bomb_x = monster->x + offsets.first * (this->grid_pitch + monster->push_speed);
+        int64_t bomb_y = monster->y + offsets.second * (this->grid_pitch + monster->push_speed);
+        auto block = *this->blocks.emplace(new Block(bomb_x, bomb_y, BlockSpecial::Bomb)).first;
+        block->x_speed = offsets.first * monster->push_speed;
+        block->y_speed = offsets.second * monster->push_speed;
+        block->owner = monster;
+        block->bomb_speed = monster->push_speed;
+      }
       continue; // there's no block to push
+    }
+
+    // (2.3) check if the monster's position is aligned
+    if (!this->is_aligned(monster->x) || !this->is_aligned(monster->y)) {
+      continue;
     }
 
     // (2.4) check if the block is already moving
@@ -1212,7 +1234,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
       case BlockSpecial::Points:
         if (responsible_monster.get()) {
-          ret.scores.emplace_back(responsible_monster, nullptr, 100);
+          ret.scores.emplace_back(responsible_monster, nullptr, 100, 0, BlockSpecial::None, block->x, block->y);
         }
       case BlockSpecial::None:
       case BlockSpecial::Immovable:
@@ -1222,7 +1244,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
       case BlockSpecial::ExtraLife:
         if (responsible_monster.get()) {
-          ret.scores.emplace_back(responsible_monster, nullptr, 0, 1);
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 1, BlockSpecial::None, block->x, block->y);
         }
         ret.events_mask |= Event::LifeCollected;
         break;
@@ -1234,7 +1256,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
       case BlockSpecial::KillsMonsters:
         if (responsible_monster.get()) {
           responsible_monster->add_special(block->special, 300);
-          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, block->special);
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, block->special, block->x, block->y);
         }
       case BlockSpecial::CreatesMonsters:
         ret.events_mask |= Event::BonusCollected;
@@ -1267,15 +1289,30 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
     auto target_block = this->find_block(target_x, target_y);
     if (target_block.get()) {
       if (!target_block->x_speed || !target_block->y_speed) {
-        // TODO: there should be a global explosion push speed here; we
-        // shouldn't use the monster's push speed or a hardcoded constant
-        int64_t speed = block->owner.get() ? block->owner->push_speed : 8;
-        ret |= this->apply_push_impulse(target_block, block->owner, direction, speed);
+        ret |= this->apply_push_impulse(target_block, block->owner, direction, block->bomb_speed);
       }
     } else {
-      // TODO: kill monsters
       // note that we don't check for monsters if there was a block, since
       // monsters and blocks can't occupy the same space
+      for (auto& monster : this->monsters) {
+        if (monster->death_frame >= 0) {
+          continue;
+        }
+        if (!this->check_stationary_collision(target_x, target_y, monster->x,
+            monster->y)) {
+          continue;
+        }
+
+        if (!monster->has_flags(Monster::Flag::Invincible)) {
+          monster->death_frame = this->frames_executed;
+          ret.events_mask |= monster->has_flags(Monster::Flag::IsPlayer)
+              ? Event::PlayerSquished : Event::MonsterSquished;
+          // TODO: use exponential decay to decrease scores over time
+          // TODO: we probably should have some kind of multiplier for killing
+          // lots of monsters with one bomb push
+          ret.scores.emplace_back(block->owner, monster, 100);
+        }
+      }
     }
   }
 
