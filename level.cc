@@ -341,8 +341,9 @@ const char* Block::name_for_flag(int64_t f) {
 }
 
 Block::Block(int64_t x, int64_t y, BlockSpecial special, int64_t flags) :
-    x(x), y(y), x_speed(0), y_speed(0), owner(NULL), decay_rate(0.0),
-    integrity(1.0), special(special), flags(flags) { }
+    x(x), y(y), x_speed(0), y_speed(0), owner(NULL),
+    monsters_killed_this_push(0), bounce_speed_absorption(2), bomb_speed(16),
+    decay_rate(0.0), integrity(1.0), special(special), flags(flags) { }
 
 string Block::str() const {
   string flags_str = name_for_flags(this->flags, this->name_for_flag);
