@@ -366,6 +366,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     int64_t player_lives, int64_t level_index, int64_t frames_until_next_level) {
   render_level_state(game, window_w, window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
+
   if (frames_until_next_level) {
     render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f,
         0.0f, 0.0f, 0.0f, 0.1f);
@@ -381,14 +382,16 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     glEnd();
 
   } else if (game->get_player()->death_frame >= 0) {
-    render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.3f, 1.0f,
-        0.0f, 0.0f, 0.1f);
     if (player_lives == 0) {
+      render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.8f,
+          1.0f, 0.0f, 0.0f, 0.1f);
       draw_text(0, 0.7, 1, 0, 0, 1, (float)window_w / window_h, 0.03, true,
           "GAME OVER");
       draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to start over...");
     } else {
+      render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.3f,
+          1.0f, 0.0f, 0.0f, 0.1f);
       if (level_index != 0) {
         draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
             "You have %" PRId64 " %s remaining", player_lives,
@@ -408,7 +411,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
 
 
 static void render_paused_overlay(int window_w, int window_h, int level_index,
-    uint64_t frames_executed, bool should_play_sounds) {
+    uint64_t frames_executed, uint64_t player_lives, bool should_play_sounds) {
 
   render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f, 0.0f,
       0.0f, 0.0f, 0.1f);
@@ -419,7 +422,17 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
 
   draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.02, true, "LEVEL %d",
       level_index);
-  draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
+  if (level_index != 0) {
+    if (player_lives == 0) {
+      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true, "NO EXTRA LIVES");
+    } else if (player_lives == 1) {
+      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true, "1 EXTRA LIFE");
+    } else {
+      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true,
+          "%" PRId64 " EXTRA LIVES", player_lives);
+    }
+  }
+  draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
 
   draw_text(0, -0.7, 1, 1, 1, 1, aspect_ratio, 0.01, true,
       "shift+s: %smute sound", should_play_sounds ? "" : "un");
@@ -612,8 +625,9 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
             level_index = 0;
             player_lives = 3;
             frames_until_next_level = 0; // don't allow player to enter next level
+          } else {
+            player_lives--;
           }
-          player_lives--;
           generate_random_elements(generation_params[level_index]);
           game.reset(new LevelState(generation_params[level_index]));
         }
@@ -837,7 +851,15 @@ int main(int argc, char* argv[]) {
 
             // check if the player has completed the level
             if (game->count_monsters_with_flags(0, Monster::Flag::IsPlayer) == 0) {
-              frames_until_next_level = 3 * game->get_updates_per_second();
+              if ((game->get_player()->death_frame >= 0) && (player_lives >= 1)) {
+                // player is dead, but has extra lives - they can go to the next
+                // level and lose a life
+                player_lives--;
+                frames_until_next_level = 3 * game->get_updates_per_second();
+              } else if (game->get_player()->death_frame < 0) {
+                // player is alive
+                frames_until_next_level = 3 * game->get_updates_per_second();
+              }
             }
 
           } else if (frames_until_next_level == 1) {
@@ -861,7 +883,7 @@ int main(int argc, char* argv[]) {
 
       if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
-            game->get_frames_executed(), should_play_sounds);
+            game->get_frames_executed(), player_lives, should_play_sounds);
       }
     }
 
