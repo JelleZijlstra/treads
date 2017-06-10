@@ -16,6 +16,7 @@
 #include <deque>
 #include <list>
 #include <phosg/Hash.hh>
+#include <phosg/Image.hh>
 #include <phosg/JSON.hh>
 #include <stdexcept>
 #include <string>
@@ -28,6 +29,11 @@
 #include "util.hh"
 
 using namespace std;
+
+
+
+// TODO: this is super ugly; clean this up
+unordered_map<BlockSpecial, Image> special_to_image;
 
 
 
@@ -84,61 +90,9 @@ static void render_block(shared_ptr<const LevelState> game,
   float y2 = to_window(block->y + game->get_grid_pitch(), game->get_h());
   aligned_rect(x1, x2, y1, y2);
 
-  float box_x1 = (3 * x1 + 5 * x2) / 8;
-  float box_x2 = (5 * x1 + 3 * x2) / 8;
-  float box_y1 = (3 * y1 + 5 * y2) / 8;
-  float box_y2 = (5 * y1 + 3 * y2) / 8;
-  switch (block->special) {
-    case BlockSpecial::None:
-      break;
-    case BlockSpecial::Points:
-      glColor4f(1, 1, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::ExtraLife:
-      glColor4f(0, 1, 1, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Invincibility:
-      glColor4f(0, 1, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Speed:
-      glColor4f(0, 0, 1, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::TimeStop:
-      glColor4f(1, 0, 1, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::ThrowBombs:
-      glColor4f(1, 0.5, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::KillsMonsters:
-      glColor4f(1, 0, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Indestructible:
-      glColor4f(0.5, 0.5, 0.5, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Immovable:
-      glColor4f(0, 0, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Bouncy:
-      glColor4f(0, 0.5, 1, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::Bomb:
-      glColor4f(0.5, 0.25, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
-    case BlockSpecial::CreatesMonsters:
-      glColor4f(0.6, 0, 0, block->integrity);
-      aligned_rect(box_x1, box_x2, box_y1, box_y2);
-      break;
+  if (block->special != BlockSpecial::None) {
+    render_image(special_to_image.at(block->special), x1, x2, -y1, -y2,
+        block->integrity, false);
   }
 }
 
@@ -270,19 +224,19 @@ static void render_monster(shared_ptr<const LevelState> game,
     float bar_halfwidth = (static_cast<float>(it.second) / 300) * (x2 - x1);
     switch (it.first) {
       case BlockSpecial::Invincibility:
-        glColor4f(0, 1, 0, 1);
+        glColor4f(0, 1, 0, 1); // green
         break;
       case BlockSpecial::Speed:
-        glColor4f(0, 0, 1, 1);
+        glColor4f(1, 1, 0, 1); // yellow
         break;
       case BlockSpecial::TimeStop:
-        glColor4f(1, 0, 1, 1);
+        glColor4f(1, 0, 1, 1); // magenta
         break;
       case BlockSpecial::ThrowBombs:
-        glColor4f(1, 0.5, 0, 1);
+        glColor4f(1, 0.5, 0, 1); // orange
         break;
       case BlockSpecial::KillsMonsters:
-        glColor4f(1, 0, 0, 1);
+        glColor4f(1, 0, 0, 1); // red
         break;
       default:
         throw logic_error("invalid special type on monster");
@@ -293,15 +247,38 @@ static void render_monster(shared_ptr<const LevelState> game,
   }
 }
 
-
-
-static void render_level_state(shared_ptr<const LevelState> game, int window_w,
+static void render_explosions(shared_ptr<const LevelState> game, int window_w,
     int window_h) {
-  glBegin(GL_QUADS);
+  auto explosions = game->get_explosions();
+  if (explosions.empty()) {
+    return;
+  }
 
+  glBegin(GL_QUADS);
+  for (const auto& explosion : explosions) {
+    float x1 = to_window(explosion->x, game->get_w());
+    float x2 = to_window(explosion->x + game->get_grid_pitch(), game->get_w());
+    float y1 = to_window(explosion->y, game->get_h());
+    float y2 = to_window(explosion->y + game->get_grid_pitch(), game->get_h());
+
+    glColor4f(1.0, 0.5, 0.0,
+        (explosion->integrity > 1.0) ? 1.0 : explosion->integrity);
+    aligned_rect(x1, x2, y1, y2);
+  }
+  glEnd();
+}
+
+
+
+static void render_level_state(shared_ptr<const LevelState> game,
+    int64_t player_lives, int64_t player_score, int window_w, int window_h) {
   // draw black background
-  glColor4f(0, 0, 0, 1);
-  aligned_rect(-1, 1, -1, 1);
+  glClearColor(0, 0, 0, 0);
+
+  // draw explosions
+  render_explosions(game, window_w, window_h);
+
+  glBegin(GL_QUADS);
 
   // draw blocks gray
   for (const auto& block : game->get_blocks()) {
@@ -315,6 +292,12 @@ static void render_level_state(shared_ptr<const LevelState> game, int window_w,
     }
     render_monster(game, monster, window_w, window_h);
   }
+
+  // draw the player's score and lives
+  draw_text(-0.99, -0.90, 1.0, 0.5, 0.0, 0.8, (float)window_w / window_h,
+      0.01, false, "Score: %" PRId64, player_score);
+  draw_text(-0.99, -0.80, 1.0, 0.5, 0.0, 0.8, (float)window_w / window_h,
+      0.01, false, "Lives: %" PRId64, player_lives);
 
   glEnd();
 }
@@ -363,8 +346,9 @@ static void render_and_delete_annotations(int window_w, int window_h,
 
 static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     int window_h, unordered_set<unique_ptr<Annotation>>& annotations,
-    int64_t player_lives, int64_t level_index, int64_t frames_until_next_level) {
-  render_level_state(game, window_w, window_h);
+    int64_t player_lives, int64_t player_score, int64_t level_index,
+    int64_t frames_until_next_level) {
+  render_level_state(game, player_lives, player_score, window_w, window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
 
   if (frames_until_next_level) {
@@ -619,11 +603,13 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
       if (phase == Phase::Playing) {
         if (game->get_player()->death_frame >= 0) {
           if (level_index == 0) {
-            // you have infinite lives on level 0
+            // you have infinite lives on level 0 but can't keep your score
             player_lives = 3;
+            player_score = 0;
           } else if (player_lives == 0) {
             level_index = 0;
             player_lives = 3;
+            player_score = 0;
             frames_until_next_level = 0; // don't allow player to enter next level
           } else {
             player_lives--;
@@ -694,9 +680,28 @@ static void add_sound(
       forward_as_tuple(new SampledSound(filename)));
 }
 
+static void add_block_special_image(BlockSpecial special,
+    const char* filename) {
+  special_to_image.emplace(piecewise_construct, forward_as_tuple(special),
+      forward_as_tuple(filename));
+}
+
 int main(int argc, char* argv[]) {
 
   srand(time(NULL) ^ getpid());
+
+  add_block_special_image(BlockSpecial::Points, "media/special_points.bmp");
+  add_block_special_image(BlockSpecial::ExtraLife, "media/special_extra_life.bmp");
+  add_block_special_image(BlockSpecial::Indestructible, "media/special_indestructible.bmp");
+  add_block_special_image(BlockSpecial::Immovable, "media/special_immovable.bmp");
+  add_block_special_image(BlockSpecial::Bomb, "media/special_bomb.bmp");
+  add_block_special_image(BlockSpecial::Bouncy, "media/special_bouncy.bmp");
+  add_block_special_image(BlockSpecial::CreatesMonsters, "media/special_creates_monsters.bmp");
+  add_block_special_image(BlockSpecial::Invincibility, "media/special_invincibility.bmp");
+  add_block_special_image(BlockSpecial::Speed, "media/special_speed.bmp");
+  add_block_special_image(BlockSpecial::TimeStop, "media/special_time_stop.bmp");
+  add_block_special_image(BlockSpecial::ThrowBombs, "media/special_throw_bombs.bmp");
+  add_block_special_image(BlockSpecial::KillsMonsters, "media/special_kills_monsters.bmp");
 
   init_al();
   unordered_map<Event, unique_ptr<SampledSound>> event_to_sound;
@@ -879,7 +884,7 @@ int main(int argc, char* argv[]) {
       }
 
       render_game_screen(game, window_w, window_h, annotations, player_lives,
-          level_index, frames_until_next_level);
+          player_score, level_index, frames_until_next_level);
 
       if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,

@@ -372,6 +372,16 @@ void Block::clear_flags(uint64_t flags) {
 
 
 
+Explosion::Explosion(int64_t x, int64_t y, float decay_rate) : x(x), y(y),
+    decay_rate(decay_rate), integrity(1.5) { }
+
+string Explosion::str() const {
+  return string_printf("<Explosion: x=%" PRId64 " y=%" PRId64 ">", this->x,
+      this->y);
+}
+
+
+
 LevelState::LevelState(const GenerationParameters& params) :
     grid_pitch(params.grid_pitch), w(params.w), h(params.h),
     updates_per_second(30.0f), frames_executed(0) {
@@ -571,6 +581,10 @@ const std::unordered_set<std::shared_ptr<Block>>& LevelState::get_blocks() const
   return this->blocks;
 }
 
+const std::unordered_set<std::shared_ptr<struct Explosion>>& LevelState::get_explosions() const {
+  return this->explosions;
+}
+
 float LevelState::get_updates_per_second() const {
   return this->updates_per_second;
 }
@@ -587,6 +601,12 @@ int64_t LevelState::count_monsters_with_flags(uint64_t flags, uint64_t mask) con
     count++;
   }
   return count;
+}
+
+int64_t LevelState::score_for_monster() const {
+  // TODO: distinction between normal and power monsters
+  int64_t ret = 100 - (this->frames_executed / 100);
+  return (ret > 0) ? ret : 0;
 }
 
 bool LevelState::is_aligned(int64_t pos) const {
@@ -992,9 +1012,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         block->monsters_killed_this_push++;
         other_monster->death_frame = this->frames_executed;
         ret.events_mask |= is_player ? Event::PlayerSquished : Event::MonsterSquished;
-        // TODO: use exponential decay to decrease scores over time
         ret.scores.emplace_back(block->owner, other_monster,
-            block->monsters_killed_this_push * 100);
+            block->monsters_killed_this_push * this->score_for_monster());
 
       } else {
         if (block->x_speed) {
@@ -1188,8 +1207,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       ret.events_mask |= (monster->has_flags(Monster::Flag::IsPlayer)) ?
           Event::PlayerKilled : Event::MonsterKilled;
       monster->death_frame = this->frames_executed;
-      // TODO: exponential function here too
-      ret.scores.emplace_back(killer, monster, 100);
+      ret.scores.emplace_back(killer, monster, this->score_for_monster());
       continue;
     }
 
@@ -1199,6 +1217,22 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     if (!collision && (time_stop_holders.empty() || time_stop_holders.count(monster))) {
       monster->x += monster->x_speed;
       monster->y += monster->y_speed;
+    }
+  }
+
+  // (7) attenuate and delete explosions
+  for (auto explosion_it = this->explosions.begin(); explosion_it != this->explosions.end();) {
+    auto& explosion = *explosion_it;
+    if (explosion->integrity >= 1.0) {
+      explosion->integrity -= 0.5;
+    } else {
+      explosion->integrity -= explosion->decay_rate;
+    }
+
+    if (explosion->integrity <= 0.0) {
+      explosion_it = this->explosions.erase(explosion_it);
+    } else {
+      explosion_it++;
     }
   }
 
@@ -1235,7 +1269,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
       case BlockSpecial::Points:
         if (responsible_monster.get()) {
-          ret.scores.emplace_back(responsible_monster, nullptr, 100, 0, BlockSpecial::None, block->x, block->y);
+          ret.scores.emplace_back(responsible_monster, nullptr, this->score_for_monster(), 0, BlockSpecial::None, block->x, block->y);
         }
       case BlockSpecial::None:
       case BlockSpecial::Immovable:
@@ -1274,10 +1308,13 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
     return ret;
   }
 
-  // hack: set the bomb block's integrity to zeror so it gets deleted on the
+  // hack: set the bomb block's integrity to zero so it gets deleted on the
   // next frame
   block->integrity = 0.0;
   ret.events_mask |= Event::Explosion;
+
+  // make an explosion in place of the destroyed block
+  this->explosions.emplace(new struct Explosion(block->x, block->y, 0.04));
 
   for (auto direction : all_directions) {
     auto offsets = offsets_for_direction(direction);
@@ -1286,6 +1323,9 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
     if (!this->is_within_bounds(target_x, target_y)) {
       continue;
     }
+
+    // make an explosion for the kaboom effect
+    this->explosions.emplace(new struct Explosion(target_x, target_y, 0.05));
 
     auto target_block = this->find_block(target_x, target_y);
     if (target_block.get()) {
@@ -1308,10 +1348,9 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
           monster->death_frame = this->frames_executed;
           ret.events_mask |= monster->has_flags(Monster::Flag::IsPlayer)
               ? Event::PlayerSquished : Event::MonsterSquished;
-          // TODO: use exponential decay to decrease scores over time
           // TODO: we probably should have some kind of multiplier for killing
           // lots of monsters with one bomb push
-          ret.scores.emplace_back(block->owner, monster, 100);
+          ret.scores.emplace_back(block->owner, monster, this->score_for_monster());
         }
       }
     }

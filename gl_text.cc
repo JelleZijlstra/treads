@@ -1,7 +1,12 @@
+#include "gl_text.hh"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <GLFW/glfw3.h>
+
+#include <phosg/Image.hh>
+#include <vector>
 
 #include "gl_text_font.hh"
 
@@ -68,4 +73,40 @@ void draw_text(float x, float y, float r, float g, float b, float a,
     currentX += (total_size * char_size) / aspect_ratio;
   }
   glEnd();
+}
+
+void render_image(const Image& img, float x1, float x2, float y1, float y2,
+    float alpha, bool gl_begin) {
+  if (gl_begin) {
+    glBegin(GL_QUADS);
+  }
+
+  size_t w = img.get_width(), h = img.get_height();
+  float cell_w = (x2 - x1) / w;
+  float cell_h = (y2 - y1) / h;
+  for (size_t y = 0; y < w; y++) {
+    for (size_t x = 0; x < w; x++) {
+      uint8_t r, g, b;
+      img.read_pixel(x, y, &r, &g, &b);
+
+      // black is transparent I guess
+      if (!r && !g && !b) {
+        continue;
+      }
+
+      glColor4f(static_cast<float>(r) / 255.0, static_cast<float>(g) / 255.0,
+          static_cast<float>(b) / 255.0, alpha);
+
+      float xf = x1 + x * cell_w;
+      float yf = y1 + y * cell_h;
+      glVertex2f(xf, yf);
+      glVertex2f(xf + cell_w, yf);
+      glVertex2f(xf + cell_w, yf + cell_h);
+      glVertex2f(xf, yf + cell_h);
+    }
+  }
+
+  if (gl_begin) {
+    glEnd();
+  }
 }

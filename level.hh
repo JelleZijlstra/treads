@@ -156,6 +156,20 @@ struct Block {
   void clear_flags(uint64_t flags);
 };
 
+struct Explosion {
+  int64_t x;
+  int64_t y;
+
+  float decay_rate; // [0, 1]
+  float integrity; // [0, 1]; when it reaches 0 the explosion is deleted
+  // note: integrity starts at 1.0, but drops to 0.5 after the first frame
+
+  Explosion() = delete;
+  Explosion(int64_t x, int64_t y, float decay_rate);
+
+  std::string str() const;
+};
+
 class LevelState {
 public:
   struct GenerationParameters {
@@ -198,6 +212,7 @@ public:
   const std::shared_ptr<Monster> get_player() const;
   const std::unordered_set<std::shared_ptr<Monster>>& get_monsters() const;
   const std::unordered_set<std::shared_ptr<Block>>& get_blocks() const;
+  const std::unordered_set<std::shared_ptr<struct Explosion>>& get_explosions() const;
 
   float get_updates_per_second() const;
   int64_t get_frames_executed() const;
@@ -236,9 +251,12 @@ private:
   std::shared_ptr<Monster> player;
   std::unordered_set<std::shared_ptr<Monster>> monsters;
   std::unordered_set<std::shared_ptr<Block>> blocks;
+  std::unordered_set<std::shared_ptr<struct Explosion>> explosions;
 
   float updates_per_second;
   int64_t frames_executed;
+
+  int64_t score_for_monster() const;
 
   // checks if the given position is a multiple of the grid pitch
   bool is_aligned(int64_t pos) const;
