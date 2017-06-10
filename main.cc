@@ -269,7 +269,8 @@ static void render_explosions(shared_ptr<const LevelState> game, int window_w,
 
 
 static void render_level_state(shared_ptr<const LevelState> game,
-    int64_t player_lives, int64_t player_score, int window_w, int window_h) {
+    int64_t level_index, int64_t player_lives, int64_t player_score,
+    int window_w, int window_h) {
   // draw black background
   glClearColor(0, 0, 0, 0);
 
@@ -292,10 +293,12 @@ static void render_level_state(shared_ptr<const LevelState> game,
   }
 
   // draw the player's score and lives
-  draw_text(-0.99, -0.90, 1.0, 0.5, 0.0, 0.8, (float)window_w / window_h,
-      0.01, false, "Score: %" PRId64, player_score);
-  draw_text(-0.99, -0.80, 1.0, 0.5, 0.0, 0.8, (float)window_w / window_h,
+    draw_text(-0.99, -0.90, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
+        0.01, false, "Score: %" PRId64, player_score);
+  if (level_index != 0) {
+  draw_text(-0.99, -0.80, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
       0.01, false, "Lives: %" PRId64, player_lives);
+  }
 
   glEnd();
 }
@@ -346,7 +349,8 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     int window_h, unordered_set<unique_ptr<Annotation>>& annotations,
     int64_t player_lives, int64_t player_score, int64_t level_index,
     int64_t frames_until_next_level) {
-  render_level_state(game, player_lives, player_score, window_w, window_h);
+  render_level_state(game, level_index, player_lives, player_score, window_w,
+      window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
 
   if (frames_until_next_level) {
@@ -393,7 +397,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
 
 
 static void render_paused_overlay(int window_w, int window_h, int level_index,
-    uint64_t frames_executed, uint64_t player_lives, bool should_play_sounds) {
+    uint64_t frames_executed, bool should_play_sounds) {
 
   render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f, 0.0f,
       0.0f, 0.0f, 0.1f);
@@ -404,16 +408,7 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
 
   draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.02, true, "LEVEL %d",
       level_index);
-  if (level_index != 0) {
-    if (player_lives == 0) {
-      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true, "NO EXTRA LIVES");
-    } else if (player_lives == 1) {
-      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true, "1 EXTRA LIFE");
-    } else {
-      draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.007, true,
-          "%" PRId64 " EXTRA LIVES", player_lives);
-    }
-  }
+
   draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
 
   draw_text(0, -0.7, 1, 1, 1, 1, aspect_ratio, 0.01, true,
@@ -857,7 +852,9 @@ int main(int argc, char* argv[]) {
               if ((game->get_player()->death_frame >= 0) && (player_lives >= 1)) {
                 // player is dead, but has extra lives - they can go to the next
                 // level and lose a life
-                player_lives--;
+                if (level_index != 0) {
+                  player_lives--;
+                }
                 frames_until_next_level = 3 * game->get_updates_per_second();
               } else if (game->get_player()->death_frame < 0) {
                 // player is alive
@@ -886,7 +883,7 @@ int main(int argc, char* argv[]) {
 
       if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
-            game->get_frames_executed(), player_lives, should_play_sounds);
+            game->get_frames_executed(), should_play_sounds);
       }
     }
 
