@@ -76,13 +76,11 @@ static void aligned_rect(float x1, float x2, float y1, float y2) {
 
 static void render_block(shared_ptr<const LevelState> game,
     shared_ptr<const Block> block, int window_w, int window_h) {
-  glColor4f(1.0 * block->integrity, 1.0 * block->integrity, 1.0 * block->integrity, 1);
-
   const auto* block_ptr = block.get();
   float brightness_modifier = fnv1a64(&block_ptr, sizeof(block_ptr)) & 0x0F;
   float block_brightness = 0.8 + 0.2 * (brightness_modifier / 15);
 
-  glGray2f(block_brightness * block->integrity, 1);
+  glGray2f(block_brightness, block->integrity);
 
   float x1 = to_window(block->x, game->get_w());
   float x2 = to_window(block->x + game->get_grid_pitch(), game->get_w());
