@@ -35,6 +35,12 @@ using namespace std;
 // TODO: this is super ugly; clean this up
 unordered_map<BlockSpecial, Image> special_to_image;
 
+enum Phase {
+  Playing = 0,
+  Paused,
+  Instructions,
+};
+
 
 
 static void render_stripe_animation(int window_w, int window_h, int stripe_width,
@@ -77,10 +83,16 @@ static void aligned_rect(float x1, float x2, float y1, float y2) {
 static void render_block(shared_ptr<const LevelState> game,
     shared_ptr<const Block> block, int window_w, int window_h) {
   const auto* block_ptr = block.get();
-  float brightness_modifier = fnv1a64(&block_ptr, sizeof(block_ptr)) & 0x0F;
-  float block_brightness = 0.8 + 0.2 * (brightness_modifier / 15);
 
-  glGray2f(block_brightness, block->integrity);
+  if (block->special == BlockSpecial::CreatesMonsters) {
+    float non_red_channels = static_cast<float>(block->frames_until_next_monster)
+        / game->get_frames_between_monsters();
+    glColor4f(1.0, non_red_channels, non_red_channels, block->integrity);
+  } else {
+    float brightness_modifier = fnv1a64(&block_ptr, sizeof(block_ptr)) & 0x0F;
+    float block_brightness = 0.8 + 0.2 * (brightness_modifier / 15);
+    glGray2f(block_brightness, block->integrity);
+  }
 
   float x1 = to_window(block->x, game->get_w());
   float x2 = to_window(block->x + game->get_grid_pitch(), game->get_w());
@@ -348,7 +360,7 @@ static void render_and_delete_annotations(int window_w, int window_h,
 static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     int window_h, unordered_set<unique_ptr<Annotation>>& annotations,
     int64_t player_lives, int64_t player_score, int64_t level_index,
-    int64_t frames_until_next_level) {
+    int64_t frames_until_next_level, Phase phase) {
   render_level_state(game, level_index, player_lives, player_score, window_w,
       window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
@@ -356,10 +368,12 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
   if (frames_until_next_level) {
     render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f,
         0.0f, 0.0f, 0.0f, 0.1f);
-    draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.025, true,
-        "LEVEL %" PRId64 " COMPLETE", level_index);
-    draw_text(0, 0.4, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
-        "Get ready for level %" PRId64, level_index + 1);
+    if (phase == Phase::Playing) {
+      draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.025, true,
+          "LEVEL %" PRId64 " COMPLETE", level_index);
+      draw_text(0, 0.4, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
+          "Get ready for level %" PRId64, level_index + 1);
+    }
 
     glBegin(GL_QUADS);
     glGray2f(1, 1);
@@ -373,7 +387,9 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
           1.0f, 0.0f, 0.0f, 0.1f);
       draw_text(0, 0.7, 1, 0, 0, 1, (float)window_w / window_h, 0.03, true,
           "GAME OVER");
-      draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+      draw_text(0, 0.2, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
+          "YOUR SCORE IS %" PRId64, player_score);
+      draw_text(0, 0.0, 1, 1, 1, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to start over...");
     } else {
       render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.3f,
@@ -389,8 +405,6 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
       draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to try again...");
     }
-    draw_text(0, 0.1, 1, 0, 0, 1, (float)window_w / window_h, 0.007, true,
-        "...or press Esc to exit");
   }
 }
 
@@ -398,12 +412,11 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
 
 static void render_paused_overlay(int window_w, int window_h, int level_index,
     uint64_t frames_executed, bool should_play_sounds) {
-
   render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f, 0.0f,
       0.0f, 0.0f, 0.1f);
 
   float aspect_ratio = (float)window_w / window_h;
-  draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.03, true,
+  draw_text(0, 0.7, 1, 1, 1, 1, aspect_ratio, 0.03, true,
       "TREADS");
 
   draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.02, true, "LEVEL %d",
@@ -411,6 +424,8 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
 
   draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
 
+  draw_text(0, -0.6, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+      "shift+i: how to play");
   draw_text(0, -0.7, 1, 1, 1, 1, aspect_ratio, 0.01, true,
       "shift+s: %smute sound", should_play_sounds ? "" : "un");
   draw_text(0, -0.8, 1, 1, 1, 1, aspect_ratio, 0.01, true, "esc: exit");
@@ -418,10 +433,38 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
 
 
 
-enum Phase {
-  Playing = 0,
-  Paused,
-};
+static void render_instructions_overlay(int window_w, int window_h,
+    int64_t instructions_page) {
+  render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.8f, 0.0f,
+      0.0f, 0.0f, 0.1f);
+
+  float aspect_ratio = (float)window_w / window_h;
+  draw_text(0, 0.9, 1, 1, 1, 1, aspect_ratio, 0.01, true, "TREADS");
+  draw_text(0, 0.8, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+      "instructions, page %" PRId64 " - space: next page, esc:exit",
+      instructions_page);
+
+  if (instructions_page == 1) {
+    draw_text(0, 0.6, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "Your goal in each level is to destroy the enemy tanks,");
+    draw_text(0, 0.5, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "usually by squishing them with blocks. But watch out!");
+    draw_text(0, 0.4, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "the enemies will kill you on contact, and the blocks");
+    draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "bounce and can squish you too!");
+
+    draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "Use the arrow keys to move around, and use the space bar");
+    draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "to push or destroy blocks. Some blocks have special bonuses");
+    draw_text(0, -0.1, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+        "inside - destroy these to get the goodies!");
+  }
+  // TODO: write the other instructions pages
+}
+
+
 
 vector<LevelState::GenerationParameters> generation_params;
 shared_ptr<LevelState> game;
@@ -429,6 +472,7 @@ int64_t frames_until_next_level = 0;
 int64_t player_lives = 3;
 int64_t player_score = 0;
 int64_t level_index = 0;
+int64_t instructions_page = 1;
 Phase phase = Phase::Paused;
 bool should_play_sounds = true;
 uint64_t current_impulse = None;
@@ -589,8 +633,25 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
     if ((key == GLFW_KEY_S) && (mods & GLFW_MOD_SHIFT)) {
       should_play_sounds = !should_play_sounds;
 
+    } else if ((key == GLFW_KEY_I) && (mods & GLFW_MOD_SHIFT)) {
+      phase = Phase::Instructions;
+      instructions_page = 1;
+
+    } else if ((key == GLFW_KEY_LEFT) && (phase == Phase::Instructions)) {
+      if (instructions_page > 1) {
+        instructions_page--;
+      }
+    } else if (((key == GLFW_KEY_RIGHT) || (key == GLFW_KEY_SPACE)) && (phase == Phase::Instructions)) {
+      if (instructions_page < 3) {
+        instructions_page++;
+      }
+
     } else if (key == GLFW_KEY_ESCAPE) {
-      glfwSetWindowShouldClose(window, 1);
+      if (phase == Phase::Instructions) {
+        phase = Phase::Paused;
+      } else {
+        glfwSetWindowShouldClose(window, 1);
+      }
 
     } else if (key == GLFW_KEY_ENTER) {
       if (phase == Phase::Playing) {
@@ -611,7 +672,7 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
           game.reset(new LevelState(generation_params[level_index]));
         }
         phase = Phase::Paused;
-      } else {
+      } else if (phase == Phase::Paused) {
         phase = Phase::Playing;
       }
 
@@ -651,8 +712,16 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
 }
 
 static void glfw_focus_cb(GLFWwindow* window, int focused) {
-  if ((focused == GL_FALSE) && (phase == Phase::Playing)) {
+  // auto-pause when we lose focus, except if the player is dead (in this case
+  // they will have to press enter to start playing again anyway)
+  if ((focused == GL_FALSE) && (phase == Phase::Playing) &&
+      (game->get_player()->death_frame < 0)) {
     phase = Phase::Paused;
+
+    // refresh the "get ready" time
+    if (frames_until_next_level) {
+      frames_until_next_level = 3 * game->get_updates_per_second();
+    }
   }
 }
 
@@ -709,6 +778,7 @@ int main(int argc, char* argv[]) {
   add_sound(event_to_sound, Event::BlockStopped, "media/block_stop.wav");
   add_sound(event_to_sound, Event::PlayerSquished, "media/squish_player.wav");
   add_sound(event_to_sound, Event::LifeCollected, "media/extra_life.wav");
+  add_sound(event_to_sound, Event::MonsterCreated, "media/monster_create.wav");
 
   if (!glfwInit()) {
     fprintf(stderr, "failed to initialize GLFW\n");
@@ -848,7 +918,8 @@ int main(int argc, char* argv[]) {
             }
 
             // check if the player has completed the level
-            if (game->count_monsters_with_flags(0, Monster::Flag::IsPlayer) == 0) {
+            if ((game->count_monsters_with_flags(0, Monster::Flag::IsPlayer) == 0) &&
+                (game->count_blocks_with_special(BlockSpecial::CreatesMonsters) == 0)) {
               if ((game->get_player()->death_frame >= 0) && (player_lives >= 1)) {
                 // player is dead, but has extra lives - they can go to the next
                 // level and lose a life
@@ -879,9 +950,11 @@ int main(int argc, char* argv[]) {
       }
 
       render_game_screen(game, window_w, window_h, annotations, player_lives,
-          player_score, level_index, frames_until_next_level);
+          player_score, level_index, frames_until_next_level, phase);
 
-      if (phase == Phase::Paused) {
+      if (phase == Phase::Instructions) {
+        render_instructions_overlay(window_w, window_h, instructions_page);
+      } else if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
             game->get_frames_executed(), should_play_sounds);
       }

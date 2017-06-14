@@ -35,6 +35,7 @@ enum Event {
   BlockStopped     = 0x0100,
   PlayerSquished   = 0x0200,
   LifeCollected    = 0x0400,
+  MonsterCreated   = 0x0800,
 };
 
 enum class BlockSpecial {
@@ -143,6 +144,7 @@ struct Block {
 
   BlockSpecial special;
   int64_t flags;
+  int64_t frames_until_next_monster;
 
   Block() = delete;
   Block(int64_t x, int64_t y, BlockSpecial special = BlockSpecial::None,
@@ -216,8 +218,10 @@ public:
 
   float get_updates_per_second() const;
   int64_t get_frames_executed() const;
+  int64_t get_frames_between_monsters() const;
 
   int64_t count_monsters_with_flags(uint64_t flags, uint64_t mask) const;
+  int64_t count_blocks_with_special(BlockSpecial special) const;
 
   // executes a single update to the level state
   struct FrameEvents {
@@ -255,6 +259,8 @@ private:
 
   float updates_per_second;
   int64_t frames_executed;
+
+  int64_t frames_between_monsters;
 
   int64_t score_for_monster() const;
 
