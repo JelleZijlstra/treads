@@ -441,6 +441,7 @@ shared_ptr<LevelState> game;
 int64_t frames_until_next_level = 0;
 int64_t player_lives = 3;
 int64_t player_score = 0;
+int64_t player_skip_levels = 0;
 int64_t level_index = 0;
 int64_t instructions_page = 1;
 Phase phase = Phase::Paused;
@@ -739,6 +740,7 @@ int main(int argc, char* argv[]) {
   add_block_special_image(BlockSpecial::Brittle, media_directory + "/special_brittle.bmp");
   add_block_special_image(BlockSpecial::Bomb, media_directory + "/special_bomb.bmp");
   add_block_special_image(BlockSpecial::Bouncy, media_directory + "/special_bouncy.bmp");
+  add_block_special_image(BlockSpecial::BouncyBomb, media_directory + "/special_bouncy_bomb.bmp");
   add_block_special_image(BlockSpecial::CreatesMonsters, media_directory + "/special_creates_monsters.bmp");
   add_block_special_image(BlockSpecial::Invincibility, media_directory + "/special_invincibility.bmp");
   add_block_special_image(BlockSpecial::Speed, media_directory + "/special_speed.bmp");
@@ -859,6 +861,7 @@ int main(int argc, char* argv[]) {
               if (score.monster->has_flags(Monster::Flag::IsPlayer)) {
                 player_score += score.score;
                 player_lives += score.lives;
+                player_skip_levels += score.skip_levels;
               }
 
               if (!score.killed.get()) {
@@ -915,7 +918,8 @@ int main(int argc, char* argv[]) {
             }
 
           } else if (frames_until_next_level == 1) {
-            level_index++;
+            level_index += (1 + player_skip_levels);
+            player_skip_levels = 0;
             if (level_index >= generation_params.size()) {
               level_index = 0; // TODO: this should probably be size/2 or something
             }

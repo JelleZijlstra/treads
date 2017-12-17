@@ -7,6 +7,7 @@
 #include <phosg/Strings.hh>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace std;
@@ -94,6 +95,8 @@ BlockSpecial special_for_name(const char* name) {
     return BlockSpecial::Bomb;
   } else if (!strcmp(name, "Bouncy")) {
     return BlockSpecial::Bouncy;
+  } else if (!strcmp(name, "BouncyBomb")) {
+    return BlockSpecial::BouncyBomb;
   } else if (!strcmp(name, "CreatesMonsters")) {
     return BlockSpecial::CreatesMonsters;
   } else if (!strcmp(name, "Invincibility")) {
@@ -129,6 +132,8 @@ const char* name_for_special(BlockSpecial special) {
       return "Bomb";
     case BlockSpecial::Bouncy:
       return "Bouncy";
+    case BlockSpecial::BouncyBomb:
+      return "BouncyBomb";
     case BlockSpecial::CreatesMonsters:
       return "CreatesMonsters";
     case BlockSpecial::Invincibility:
@@ -164,6 +169,8 @@ const char* display_name_for_special(BlockSpecial special) {
       return "Bomb";
     case BlockSpecial::Bouncy:
       return "Bouncy";
+    case BlockSpecial::BouncyBomb:
+      return "BouncyBomb";
     case BlockSpecial::CreatesMonsters:
       return "Monster Generator";
     case BlockSpecial::Invincibility:
@@ -349,6 +356,10 @@ const char* Block::name_for_flag(int64_t f) {
       return "KillsPlayers";
     case Flag::KillsMonsters:
       return "KillsMonsters";
+    case Flag::IsBomb:
+      return "IsBomb";
+    case Flag::DelayedBomb:
+      return "DelayedBomb";
     default:
       return "<InvalidFlag>";
   }
@@ -472,7 +483,6 @@ LevelState::LevelState(const GenerationParameters& params) :
         case BlockSpecial::CreatesMonsters:
           block->frames_until_next_monster = this->frames_between_monsters;
           block->owner = this->player;
-        case BlockSpecial::Bomb:
         case BlockSpecial::Points:
         case BlockSpecial::ExtraLife:
         case BlockSpecial::Invincibility:
@@ -480,7 +490,6 @@ LevelState::LevelState(const GenerationParameters& params) :
         case BlockSpecial::TimeStop:
         case BlockSpecial::ThrowBombs:
         case BlockSpecial::KillsMonsters:
-          block->special = special_it.first;
           break;
 
         case BlockSpecial::Indestructible:
@@ -501,6 +510,14 @@ LevelState::LevelState(const GenerationParameters& params) :
 
         case BlockSpecial::Bouncy:
           block->set_flags(Block::Flag::Bouncy);
+          break;
+
+        case BlockSpecial::Bomb:
+          block->set_flags(Block::Flag::IsBomb);
+          break;
+
+        case BlockSpecial::BouncyBomb:
+          block->set_flags(Block::Flag::IsBomb | Block::Flag::DelayedBomb);
           break;
       }
 
@@ -736,10 +753,18 @@ bool LevelState::check_moving_collision(int64_t this_x, int64_t this_y,
 }
 
 LevelState::FrameEvents::ScoreInfo::ScoreInfo(shared_ptr<Monster> monster,
-    shared_ptr<Monster> killed, int64_t score, int64_t lives,
+    shared_ptr<Monster> killed, int64_t score, int64_t lives, int64_t skip_levels,
     BlockSpecial bonus, int64_t block_x, int64_t block_y) : score(score),
-    lives(lives), bonus(bonus), block_x(block_x), block_y(block_y),
-    monster(monster), killed(killed) { }
+    lives(lives), skip_levels(skip_levels), bonus(bonus), block_x(block_x),
+    block_y(block_y), monster(monster), killed(killed) { }
+
+string LevelState::FrameEvents::ScoreInfo::str() const {
+  return string_printf("ScoreInfo(score=%" PRId64 ", lives=%" PRId64
+      ", skip_levels=%" PRId64 ", bonus=%" PRId64 ", block_x=%" PRId64
+      ", block_y=%" PRId64 ", monster=%p, killed=%p)",
+      this->score, this->lives, this->skip_levels, this->bonus, this->block_x,
+      this->block_y, this->monster.get(), this->killed.get());
+}
 
 LevelState::FrameEvents::FrameEvents() : events_mask(0) { }
 
@@ -803,7 +828,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       continue; // this monster is held by a time stop
     }
 
-    if (monster->has_flags(Monster::Flag::IsPlayer)) {
+    bool is_player = monster->has_flags(Monster::Flag::IsPlayer);
+    if (is_player) {
       monster->control_impulse = impulses;
     } else {
       // if the monster isn't aligned, don't bother - it can't move anyway
@@ -853,7 +879,25 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
     // make the monster face in the impulse direction and update its speed if
     // it's aligned
-    if (this->is_aligned(monster->x) && this->is_aligned(monster->y)) {
+    bool apply_impulse = false;
+    if (is_player) {
+      // unlike monsters, players can turn around mid-cell
+      Impulse new_direction = collapse_direction(monster->control_impulse);
+      if (((new_direction == Impulse::Left) || (new_direction == Impulse::Right)) &&
+          this->is_aligned(monster->y)) {
+        apply_impulse = true;
+      }
+      if (((new_direction == Impulse::Up) || (new_direction == Impulse::Down)) &&
+          this->is_aligned(monster->x)) {
+        apply_impulse = true;
+      }
+      if ((new_direction == Impulse::None) && this->is_aligned(monster->x) && this->is_aligned(monster->y)) {
+        apply_impulse = true;
+      }
+    } else {
+      apply_impulse = this->is_aligned(monster->x) && this->is_aligned(monster->y);
+    }
+    if (apply_impulse) {
       Impulse new_direction = collapse_direction(monster->control_impulse);
       if (new_direction == Impulse::None) {
         monster->x_speed = 0;
@@ -1080,8 +1124,11 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       block->x += block->x_speed;
       block->y += block->y_speed;
 
-    // (5.4.1) if the block collided and is a bomb and is aligned, it explodes
-    } else if ((block->special == BlockSpecial::Bomb) && this->is_aligned(block->x) && this->is_aligned(block->y)) {
+    // (5.4.1) if the block collided and is a bomb and is aligned, it explodes.
+    // if it's a bouncy bomb, it only explodes if it's stopped.
+    } else if (block->has_flags(Block::Flag::IsBomb) &&
+        this->is_aligned(block->x) && this->is_aligned(block->y) &&
+        (!block->has_flags(Block::Flag::DelayedBomb) || ((block->x_speed == 0) && (block->y_speed == 0)))) {
       ret |= this->apply_explosion(block);
     }
   }
@@ -1394,13 +1441,14 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
         throw logic_error("indestructible block was destroyed");
 
       case BlockSpecial::Bomb:
+      case BlockSpecial::BouncyBomb:
         ret |= this->apply_explosion(block);
         break;
 
       case BlockSpecial::Points:
         if (responsible_monster.get()) {
           ret.scores.emplace_back(responsible_monster, nullptr,
-              this->score_for_monster(false), 0, BlockSpecial::None, block->x, block->y);
+              this->score_for_monster(false), 0, 0, BlockSpecial::None, block->x, block->y);
         }
       case BlockSpecial::None:
       case BlockSpecial::Immovable:
@@ -1411,7 +1459,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
       case BlockSpecial::ExtraLife:
         if (responsible_monster.get()) {
-          ret.scores.emplace_back(responsible_monster, nullptr, 0, 1, BlockSpecial::None, block->x, block->y);
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 1, 0, BlockSpecial::None, block->x, block->y);
         }
         ret.events_mask |= Event::LifeCollected;
         break;
@@ -1423,7 +1471,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
       case BlockSpecial::KillsMonsters:
         if (responsible_monster.get()) {
           responsible_monster->add_special(block->special, 300);
-          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, block->special, block->x, block->y);
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, 0, block->special, block->x, block->y);
         }
       case BlockSpecial::CreatesMonsters:
         ret.events_mask |= Event::BonusCollected;

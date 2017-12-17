@@ -50,6 +50,7 @@ enum class BlockSpecial {
   Brittle, // breaks when moved
   Bomb,
   Bouncy,
+  BouncyBomb,
   CreatesMonsters,
 
   // these are also used in special_type_to_frames_remaining
@@ -128,6 +129,7 @@ struct Block {
     KillsMonsters = 0x10, // kills monsters if it runs them over
     IsBomb        = 0x20, // explodes instead of bouncing (unimplemented)
     Brittle       = 0x40, // automatically destroyed when pushed
+    DelayedBomb   = 0x80, // only explodes when it stops moving
   };
   static const char* name_for_flag(int64_t f);
 
@@ -236,6 +238,7 @@ public:
     struct ScoreInfo {
       int64_t score;
       int64_t lives;
+      int64_t skip_levels;
       BlockSpecial bonus;
       int64_t block_x;
       int64_t block_y;
@@ -244,8 +247,11 @@ public:
 
       ScoreInfo(std::shared_ptr<Monster> monster,
           std::shared_ptr<Monster> killed = NULL, int64_t score = 0,
-          int64_t lives = 0, BlockSpecial bonus = BlockSpecial::None,
-          int64_t block_x = 0, int64_t block_y = 0);
+          int64_t lives = 0, int64_t skip_levels = 0,
+          BlockSpecial bonus = BlockSpecial::None, int64_t block_x = 0,
+          int64_t block_y = 0);
+
+      std::string str() const;
     };
     std::vector<ScoreInfo> scores;
 
