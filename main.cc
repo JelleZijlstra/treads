@@ -38,7 +38,6 @@ unordered_map<BlockSpecial, Image> special_to_image;
 enum Phase {
   Playing = 0,
   Paused,
-  Instructions,
 };
 
 
@@ -183,6 +182,8 @@ static void render_monster(shared_ptr<const LevelState> game,
   // draw body
   if (monster->has_flags(Monster::Flag::IsPlayer)) {
     glColor4f(0.2, 0.9, 0.0, monster->integrity);
+  } else if (monster->has_flags(Monster::Flag::IsPower)) {
+    glColor4f(0.9, 0, 0.9, monster->integrity);
   } else {
     glColor4f(0.9, 0, 0, monster->integrity);
   }
@@ -366,7 +367,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
   render_and_delete_annotations(window_w, window_h, annotations);
 
   if (frames_until_next_level) {
-    render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f,
+    render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.5f,
         0.0f, 0.0f, 0.0f, 0.1f);
     if (phase == Phase::Playing) {
       draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.025, true,
@@ -392,7 +393,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
       draw_text(0, 0.0, 1, 1, 1, 1, (float)window_w / window_h, 0.01, true,
           "Press Enter to start over...");
     } else {
-      render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.3f,
+      render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.5f,
           1.0f, 0.0f, 0.0f, 0.1f);
       if (level_index != 0) {
         draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
@@ -412,7 +413,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
 
 static void render_paused_overlay(int window_w, int window_h, int level_index,
     uint64_t frames_executed, bool should_play_sounds) {
-  render_stripe_animation(window_w, window_h, 100, 0.3f, 0.3f, 0.3f, 0.5f, 0.0f,
+  render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f,
       0.0f, 0.0f, 0.1f);
 
   float aspect_ratio = (float)window_w / window_h;
@@ -424,44 +425,13 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
 
   draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
 
+  draw_text(0, -0.5, 1, 1, 1, 1, aspect_ratio, 0.01, true,
+      "arrow keys: move");
   draw_text(0, -0.6, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-      "shift+i: how to play");
+      "space: push / destroy");
   draw_text(0, -0.7, 1, 1, 1, 1, aspect_ratio, 0.01, true,
       "shift+s: %smute sound", should_play_sounds ? "" : "un");
   draw_text(0, -0.8, 1, 1, 1, 1, aspect_ratio, 0.01, true, "esc: exit");
-}
-
-
-
-static void render_instructions_overlay(int window_w, int window_h,
-    int64_t instructions_page) {
-  render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.8f, 0.0f,
-      0.0f, 0.0f, 0.1f);
-
-  float aspect_ratio = (float)window_w / window_h;
-  draw_text(0, 0.9, 1, 1, 1, 1, aspect_ratio, 0.01, true, "TREADS");
-  draw_text(0, 0.8, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-      "instructions, page %" PRId64 " - space: next page, esc:exit",
-      instructions_page);
-
-  if (instructions_page == 1) {
-    draw_text(0, 0.6, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "Your goal in each level is to destroy the enemy tanks,");
-    draw_text(0, 0.5, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "usually by squishing them with blocks. But watch out!");
-    draw_text(0, 0.4, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "the enemies will kill you on contact, and the blocks");
-    draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "bounce and can squish you too!");
-
-    draw_text(0, 0.1, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "Use the arrow keys to move around, and use the space bar");
-    draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "to push or destroy blocks. Some blocks have special bonuses");
-    draw_text(0, -0.1, 1, 1, 1, 1, aspect_ratio, 0.01, true,
-        "inside - destroy these to get the goodies!");
-  }
-  // TODO: write the other instructions pages
 }
 
 
@@ -551,6 +521,8 @@ static vector<LevelState::GenerationParameters> load_generation_params(
       defaults.power_monster_count.first = defaults_json->at("power_monster_count")->as_int();
       defaults.power_monster_count.second = defaults.power_monster_count.first;
     }
+    defaults.basic_monster_score = defaults_json->at("basic_monster_score")->as_int();
+    defaults.power_monster_score = defaults_json->at("power_monster_score")->as_int();
     defaults.power_monsters_can_push = defaults_json->at("power_monsters_can_push")->as_bool();
     defaults.power_monsters_become_creators = defaults_json->at("power_monsters_become_creators")->as_bool();
     defaults.player_move_speed = defaults_json->at("player_move_speed")->as_int();
@@ -583,6 +555,8 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     params.power_monster_count.second = json_get_default_int(level_json, "power_monster_count", defaults.power_monster_count.second);
     params.power_monster_count.first = json_get_default_int(level_json, "power_monster_count_low", params.power_monster_count.first);
     params.power_monster_count.second = json_get_default_int(level_json, "power_monster_count_high", params.power_monster_count.second);
+    params.basic_monster_score = json_get_default_int(level_json, "basic_monster_score", params.basic_monster_score);
+    params.power_monster_score = json_get_default_int(level_json, "power_monster_score", params.power_monster_score);
     params.player_move_speed = json_get_default_int(level_json, "player_move_speed", defaults.player_move_speed);
     params.basic_monster_move_speed = json_get_default_int(level_json, "basic_monster_move_speed", defaults.basic_monster_move_speed);
     params.power_monster_move_speed = json_get_default_int(level_json, "power_monster_move_speed", defaults.power_monster_move_speed);
@@ -633,29 +607,12 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
     if ((key == GLFW_KEY_S) && (mods & GLFW_MOD_SHIFT)) {
       should_play_sounds = !should_play_sounds;
 
-    } else if ((key == GLFW_KEY_I) && (mods & GLFW_MOD_SHIFT)) {
-      phase = Phase::Instructions;
-      instructions_page = 1;
-
-    } else if ((key == GLFW_KEY_LEFT) && (phase == Phase::Instructions)) {
-      if (instructions_page > 1) {
-        instructions_page--;
-      }
-    } else if (((key == GLFW_KEY_RIGHT) || (key == GLFW_KEY_SPACE)) && (phase == Phase::Instructions)) {
-      if (instructions_page < 3) {
-        instructions_page++;
-      }
-
     } else if (key == GLFW_KEY_ESCAPE) {
-      if (phase == Phase::Instructions) {
-        phase = Phase::Paused;
-      } else {
-        glfwSetWindowShouldClose(window, 1);
-      }
+      glfwSetWindowShouldClose(window, 1);
 
     } else if (key == GLFW_KEY_ENTER) {
       if (phase == Phase::Playing) {
-        if (game->get_player()->death_frame >= 0) {
+        if ((game->get_player()->death_frame >= 0) && !frames_until_next_level) {
           if (level_index == 0) {
             // you have infinite lives on level 0 but can't keep your score
             player_lives = 3;
@@ -737,48 +694,72 @@ static void glfw_error_cb(int error, const char* description) {
 
 static void add_sound(
     unordered_map<Event, unique_ptr<SampledSound>>& event_to_sound, Event event,
-    const char* filename) {
+    const string& filename) {
   event_to_sound.emplace(piecewise_construct, forward_as_tuple(event),
-      forward_as_tuple(new SampledSound(filename)));
+      forward_as_tuple(new SampledSound(filename.c_str())));
 }
 
 static void add_block_special_image(BlockSpecial special,
-    const char* filename) {
+    const string& filename) {
   special_to_image.emplace(piecewise_construct, forward_as_tuple(special),
-      forward_as_tuple(filename));
+      forward_as_tuple(filename.c_str()));
 }
 
 int main(int argc, char* argv[]) {
 
   srand(time(NULL) ^ getpid());
 
-  add_block_special_image(BlockSpecial::Points, "media/special_points.bmp");
-  add_block_special_image(BlockSpecial::ExtraLife, "media/special_extra_life.bmp");
-  add_block_special_image(BlockSpecial::Indestructible, "media/special_indestructible.bmp");
-  add_block_special_image(BlockSpecial::Immovable, "media/special_immovable.bmp");
-  add_block_special_image(BlockSpecial::Bomb, "media/special_bomb.bmp");
-  add_block_special_image(BlockSpecial::Bouncy, "media/special_bouncy.bmp");
-  add_block_special_image(BlockSpecial::CreatesMonsters, "media/special_creates_monsters.bmp");
-  add_block_special_image(BlockSpecial::Invincibility, "media/special_invincibility.bmp");
-  add_block_special_image(BlockSpecial::Speed, "media/special_speed.bmp");
-  add_block_special_image(BlockSpecial::TimeStop, "media/special_time_stop.bmp");
-  add_block_special_image(BlockSpecial::ThrowBombs, "media/special_throw_bombs.bmp");
-  add_block_special_image(BlockSpecial::KillsMonsters, "media/special_kills_monsters.bmp");
+  string media_directory;
+#ifdef MACOSX
+  CFURLRef app_url = CFBundleCopyBundleURL(CFBundleGetMainBundle());
+  CFStringRef path = CFURLCopyFileSystemPath(app_url, kCFURLPOSIXPathStyle);
+  const char *p = CFStringGetCStringPtr(path, CFStringGetSystemEncoding());
+
+  // if we're in an app bundle, look in Resources/ for media; else look in the
+  // the executable directory
+  size_t p_len = strlen(p);
+  if ((p_len >= 4) && !strcmp(p + p_len - 4, ".app")) {
+    media_directory = string(p) + "/Contents/Resources";
+  } else {
+    media_directory = string(p) + "/media";
+  }
+
+  CFRelease(app_url);
+  CFRelease(path);
+#else
+  // assume it's in the same working directory for now
+  media_directory = "media";
+#endif
+
+  add_block_special_image(BlockSpecial::Points, media_directory + "/special_points.bmp");
+  add_block_special_image(BlockSpecial::ExtraLife, media_directory + "/special_extra_life.bmp");
+  add_block_special_image(BlockSpecial::Indestructible, media_directory + "/special_indestructible.bmp");
+  add_block_special_image(BlockSpecial::IndestructibleAndImmovable, media_directory + "/special_indestructible_and_immovable.bmp");
+  add_block_special_image(BlockSpecial::Immovable, media_directory + "/special_immovable.bmp");
+  add_block_special_image(BlockSpecial::Brittle, media_directory + "/special_brittle.bmp");
+  add_block_special_image(BlockSpecial::Bomb, media_directory + "/special_bomb.bmp");
+  add_block_special_image(BlockSpecial::Bouncy, media_directory + "/special_bouncy.bmp");
+  add_block_special_image(BlockSpecial::CreatesMonsters, media_directory + "/special_creates_monsters.bmp");
+  add_block_special_image(BlockSpecial::Invincibility, media_directory + "/special_invincibility.bmp");
+  add_block_special_image(BlockSpecial::Speed, media_directory + "/special_speed.bmp");
+  add_block_special_image(BlockSpecial::TimeStop, media_directory + "/special_time_stop.bmp");
+  add_block_special_image(BlockSpecial::ThrowBombs, media_directory + "/special_throw_bombs.bmp");
+  add_block_special_image(BlockSpecial::KillsMonsters, media_directory + "/special_kills_monsters.bmp");
 
   init_al();
   unordered_map<Event, unique_ptr<SampledSound>> event_to_sound;
-  add_sound(event_to_sound, Event::BlockPushed, "media/push.wav");
-  add_sound(event_to_sound, Event::MonsterSquished, "media/squish_monster.wav");
-  add_sound(event_to_sound, Event::MonsterKilled, "media/squish_monster.wav");
-  add_sound(event_to_sound, Event::PlayerKilled, "media/squish_player.wav");
-  add_sound(event_to_sound, Event::BonusCollected, "media/crush_bonus.wav");
-  add_sound(event_to_sound, Event::BlockDestroyed, "media/crush_block.wav");
-  add_sound(event_to_sound, Event::BlockBounced, "media/block_bounce.wav");
-  add_sound(event_to_sound, Event::Explosion, "media/explode.wav");
-  add_sound(event_to_sound, Event::BlockStopped, "media/block_stop.wav");
-  add_sound(event_to_sound, Event::PlayerSquished, "media/squish_player.wav");
-  add_sound(event_to_sound, Event::LifeCollected, "media/extra_life.wav");
-  add_sound(event_to_sound, Event::MonsterCreated, "media/monster_create.wav");
+  add_sound(event_to_sound, Event::BlockPushed, media_directory + "/push.wav");
+  add_sound(event_to_sound, Event::MonsterSquished, media_directory + "/squish_monster.wav");
+  add_sound(event_to_sound, Event::MonsterKilled, media_directory + "/squish_monster.wav");
+  add_sound(event_to_sound, Event::PlayerKilled, media_directory + "/squish_player.wav");
+  add_sound(event_to_sound, Event::BonusCollected, media_directory + "/crush_bonus.wav");
+  add_sound(event_to_sound, Event::BlockDestroyed, media_directory + "/crush_block.wav");
+  add_sound(event_to_sound, Event::BlockBounced, media_directory + "/block_bounce.wav");
+  add_sound(event_to_sound, Event::Explosion, media_directory + "/explode.wav");
+  add_sound(event_to_sound, Event::BlockStopped, media_directory + "/block_stop.wav");
+  add_sound(event_to_sound, Event::PlayerSquished, media_directory + "/squish_player.wav");
+  add_sound(event_to_sound, Event::LifeCollected, media_directory + "/extra_life.wav");
+  add_sound(event_to_sound, Event::MonsterCreated, media_directory + "/monster_create.wav");
 
   if (!glfwInit()) {
     fprintf(stderr, "failed to initialize GLFW\n");
@@ -787,7 +768,7 @@ int main(int argc, char* argv[]) {
   glfwSetErrorCallback(glfw_error_cb);
 
   // generate the level
-  generation_params = load_generation_params("media/levels.json");
+  generation_params = load_generation_params(media_directory + "/levels.json");
   generate_random_elements(generation_params[0]);
   game.reset(new LevelState(generation_params[0]));
   uint64_t w_cells = generation_params[0].w / generation_params[0].grid_pitch;
@@ -890,10 +871,10 @@ int main(int argc, char* argv[]) {
                       0, 1, 0, 2, 1, 0.007, display_name_for_special(score.bonus)));
                 } else if (score.lives) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
-                      1, 1, 1, 2, 1, 0.007, string_printf("%dUP", score.lives)));
+                      0, 1, 0, 2, 1, 0.007, string_printf("%dUP", score.lives)));
                 } else if (score.score) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
-                      1, 1, 1, 2, 1, 0.007, string_printf("%d", score.score)));
+                      0, 1, 0, 2, 1, 0.007, string_printf("%d", score.score)));
                 }
               } else if (score.killed.get() && (
                   (score.killed->has_flags(Monster::Flag::IsPlayer)) ||
@@ -952,9 +933,7 @@ int main(int argc, char* argv[]) {
       render_game_screen(game, window_w, window_h, annotations, player_lives,
           player_score, level_index, frames_until_next_level, phase);
 
-      if (phase == Phase::Instructions) {
-        render_instructions_overlay(window_w, window_h, instructions_page);
-      } else if (phase == Phase::Paused) {
+      if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
             game->get_frames_executed(), should_play_sounds);
       }

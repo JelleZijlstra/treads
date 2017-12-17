@@ -45,7 +45,9 @@ enum class BlockSpecial {
 
   // these are converted to Flags
   Indestructible,
+  IndestructibleAndImmovable,
   Immovable,
+  Brittle, // breaks when moved
   Bomb,
   Bouncy,
   CreatesMonsters,
@@ -65,14 +67,15 @@ const char* display_name_for_special(BlockSpecial special);
 struct Monster {
   enum Flag {
     IsPlayer         = 0x0001, // used for checking flags when blocks run over
-    CanPushBlocks    = 0x0002, // ignored for players (they can always push)
-    CanDestroyBlocks = 0x0004, // ignored for players (they can always destroy)
-    BlocksPlayers    = 0x0008, // collides with players
-    BlocksMonsters   = 0x0010, // collides with monsters
-    Squishable       = 0x0020, // dies when block hits it
-    KillsPlayers     = 0x0040, // kills players on contact
-    KillsMonsters    = 0x0080, // kills monsters on contact
-    Invincible       = 0x0100, // cannot be killed for any reason
+    IsPower          = 0x0002, // used for determining score when killed
+    CanPushBlocks    = 0x0004, // ignored for players (they can always push)
+    CanDestroyBlocks = 0x0008, // ignored for players (they can always destroy)
+    BlocksPlayers    = 0x0010, // collides with players
+    BlocksMonsters   = 0x0020, // collides with monsters
+    Squishable       = 0x0040, // dies when block hits it
+    KillsPlayers     = 0x0080, // kills players on contact
+    KillsMonsters    = 0x0100, // kills monsters on contact
+    Invincible       = 0x0200, // cannot be killed for any reason
   };
   static const char* name_for_flag(int64_t f);
 
@@ -124,6 +127,7 @@ struct Block {
     KillsPlayers  = 0x08, // kills players if it runs them over
     KillsMonsters = 0x10, // kills monsters if it runs them over
     IsBomb        = 0x20, // explodes instead of bouncing (unimplemented)
+    Brittle       = 0x40, // automatically destroyed when pushed
   };
   static const char* name_for_flag(int64_t f);
 
@@ -188,6 +192,9 @@ public:
 
     std::pair<int64_t, int64_t> basic_monster_count;
     std::pair<int64_t, int64_t> power_monster_count;
+
+    int64_t basic_monster_score;
+    int64_t power_monster_score;
 
     bool power_monsters_can_push;
     bool power_monsters_become_creators;
@@ -257,12 +264,15 @@ private:
   std::unordered_set<std::shared_ptr<Block>> blocks;
   std::unordered_set<std::shared_ptr<struct Explosion>> explosions;
 
+  int64_t basic_monster_score;
+  int64_t power_monster_score;
+
   float updates_per_second;
   int64_t frames_executed;
 
   int64_t frames_between_monsters;
 
-  int64_t score_for_monster() const;
+  int64_t score_for_monster(bool is_power_monster) const;
 
   // checks if the given position is a multiple of the grid pitch
   bool is_aligned(int64_t pos) const;

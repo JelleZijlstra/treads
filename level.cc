@@ -84,8 +84,12 @@ BlockSpecial special_for_name(const char* name) {
     return BlockSpecial::ExtraLife;
   } else if (!strcmp(name, "Indestructible")) {
     return BlockSpecial::Indestructible;
+  } else if (!strcmp(name, "IndestructibleAndImmovable")) {
+    return BlockSpecial::IndestructibleAndImmovable;
   } else if (!strcmp(name, "Immovable")) {
     return BlockSpecial::Immovable;
+  } else if (!strcmp(name, "Brittle")) {
+    return BlockSpecial::Brittle;
   } else if (!strcmp(name, "Bomb")) {
     return BlockSpecial::Bomb;
   } else if (!strcmp(name, "Bouncy")) {
@@ -115,8 +119,12 @@ const char* name_for_special(BlockSpecial special) {
       return "ExtraLife";
     case BlockSpecial::Indestructible:
       return "Indestructible";
+    case BlockSpecial::IndestructibleAndImmovable:
+      return "IndestructibleAndImmovable";
     case BlockSpecial::Immovable:
       return "Immovable";
+    case BlockSpecial::Brittle:
+      return "Brittle";
     case BlockSpecial::Bomb:
       return "Bomb";
     case BlockSpecial::Bouncy:
@@ -146,8 +154,12 @@ const char* display_name_for_special(BlockSpecial special) {
       return "Extra Life";
     case BlockSpecial::Indestructible:
       return "Indestructible";
+    case BlockSpecial::IndestructibleAndImmovable:
+      return "Indestructible and Immovable";
     case BlockSpecial::Immovable:
       return "Immovable";
+    case BlockSpecial::Brittle:
+      return "Brittle";
     case BlockSpecial::Bomb:
       return "Bomb";
     case BlockSpecial::Bouncy:
@@ -252,6 +264,7 @@ void Monster::add_special(BlockSpecial special, int64_t frames) {
         // it didn't have the special already; increase its move speed
         this->move_speed *= 2;
         this->push_speed *= 2;
+        this->block_destroy_rate *= 2;
       } else {
         // it did already have the special; just change the timeout
         emplace_ret.first->second = 300;
@@ -292,6 +305,7 @@ void Monster::attenuate_and_delete_specials() {
         case BlockSpecial::Speed:
           this->move_speed /= 2;
           this->push_speed /= 2;
+          this->block_destroy_rate /= 2;
           break;
         default:
           throw logic_error("unimplemented special removal action");
@@ -385,7 +399,9 @@ string Explosion::str() const {
 
 LevelState::LevelState(const GenerationParameters& params) :
     grid_pitch(params.grid_pitch), w(params.w), h(params.h),
-    updates_per_second(30.0f), frames_executed(0), frames_between_monsters(300) {
+    basic_monster_score(params.basic_monster_score),
+    power_monster_score(params.power_monster_score), updates_per_second(30.0f),
+    frames_executed(0), frames_between_monsters(300) {
 
   // the player is a monster, technically
   uint64_t player_flags = Monster::Flag::IsPlayer | Monster::Flag::CanPushBlocks | Monster::Flag::CanDestroyBlocks | (params.player_squishable ? Monster::Flag::Squishable : 0);
@@ -424,6 +440,7 @@ LevelState::LevelState(const GenerationParameters& params) :
 
     bool is_power_monster = (this->monsters.size() >= basic_monster_count + 1);
     uint64_t flags = Monster::Flag::Squishable | Monster::Flag::KillsPlayers |
+        (is_power_monster ? Monster::Flag::IsPower : 0) |
         ((is_power_monster && params.power_monsters_can_push) ? Monster::Flag::CanPushBlocks : 0);
     auto& monster = *this->monsters.emplace(new Monster((*block_it)->x,
         (*block_it)->y, flags)).first;
@@ -454,7 +471,6 @@ LevelState::LevelState(const GenerationParameters& params) :
 
         case BlockSpecial::CreatesMonsters:
           block->frames_until_next_monster = this->frames_between_monsters;
-          block->clear_flags(Block::Flag::Pushable);
           block->owner = this->player;
         case BlockSpecial::Bomb:
         case BlockSpecial::Points:
@@ -471,8 +487,16 @@ LevelState::LevelState(const GenerationParameters& params) :
           block->clear_flags(Block::Flag::Destructible);
           break;
 
-        case BlockSpecial::Immovable:
+        case BlockSpecial::IndestructibleAndImmovable:
           block->clear_flags(Block::Flag::Pushable | Block::Flag::Destructible);
+          break;
+
+        case BlockSpecial::Immovable:
+          block->clear_flags(Block::Flag::Pushable);
+          break;
+
+        case BlockSpecial::Brittle:
+          block->set_flags(Block::Flag::Brittle);
           break;
 
         case BlockSpecial::Bouncy:
@@ -619,9 +643,9 @@ int64_t LevelState::count_blocks_with_special(BlockSpecial special) const {
   return count;
 }
 
-int64_t LevelState::score_for_monster() const {
-  // TODO: distinction between normal and power monsters
-  int64_t ret = 100 - (this->frames_executed / 100);
+int64_t LevelState::score_for_monster(bool is_power_monster) const {
+  int64_t base = is_power_monster ? this->power_monster_score : this->basic_monster_score;
+  int64_t ret = base - (this->frames_executed / 100);
   return (ret > 0) ? ret : 0;
 }
 
@@ -1027,11 +1051,12 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       if (other_monster->has_flags(Monster::Flag::Squishable) &&
           !other_monster->has_flags(Monster::Flag::Invincible)) {
         bool is_player = other_monster->has_flags(Monster::Flag::IsPlayer);
+        bool is_power = other_monster->has_flags(Monster::Flag::IsPower);
         block->monsters_killed_this_push++;
         other_monster->death_frame = this->frames_executed;
         ret.events_mask |= is_player ? Event::PlayerSquished : Event::MonsterSquished;
         ret.scores.emplace_back(block->owner, other_monster,
-            block->monsters_killed_this_push * this->score_for_monster());
+            block->monsters_killed_this_push * this->score_for_monster(is_power));
 
       } else {
         if (block->x_speed) {
@@ -1225,7 +1250,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       ret.events_mask |= (monster->has_flags(Monster::Flag::IsPlayer)) ?
           Event::PlayerKilled : Event::MonsterKilled;
       monster->death_frame = this->frames_executed;
-      ret.scores.emplace_back(killer, monster, this->score_for_monster());
+      bool is_power = monster->has_flags(Monster::Flag::IsPower);
+      ret.scores.emplace_back(killer, monster, this->score_for_monster(is_power));
       continue;
     }
 
@@ -1246,9 +1272,15 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     if (block->frames_until_next_monster == 0) {
       // figure out where the monster can go
       // TODO: don't iterate over all blocks 4 times, sigh
-      vector<pair<int64_t, int64_t>> candidate_locations;
+      vector<Impulse> candidate_directions;
       for (auto direction : all_directions) {
         auto offsets = offsets_for_direction(direction);
+        // don't create a monster in the direction the block is moving (it would
+        // just get smashed immediately)
+        if (((offsets.first * block->x_speed) > 0) ||
+            ((offsets.second * block->y_speed) > 0)) {
+          continue;
+        }
         int64_t target_x = block->x + offsets.first * this->grid_pitch;
         int64_t target_y = block->y + offsets.second * this->grid_pitch;
         if (!this->is_within_bounds(target_x, target_y)) {
@@ -1257,15 +1289,15 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         if (!this->space_is_empty(target_x, target_y)) {
           continue;
         }
-        candidate_locations.emplace_back(make_pair(target_x, target_y));
+        candidate_directions.emplace_back(direction);
       }
 
-      if (candidate_locations.empty()) {
+      if (candidate_directions.empty()) {
         // kaboom
         ret |= this->apply_explosion(block);
       } else {
         // create a monster
-        int64_t which = random_int(0, candidate_locations.size() - 1);
+        int64_t which = random_int(0, candidate_directions.size() - 1);
 
         // choose another non-player monster at "random" to copy flags from
         // for now, just choose the first one because I'm lazy
@@ -1279,12 +1311,19 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         // if that happened, just let the player win
         if (exemplar_monster_it != this->monsters.end()) {
           auto exemplar_monster = *exemplar_monster_it;
+
+          auto offsets = offsets_for_direction(candidate_directions[which]);
+          int64_t target_x = block->x + offsets.first * this->grid_pitch;
+          int64_t target_y = block->y + offsets.second * this->grid_pitch;
+
           auto& monster = *this->monsters.emplace(new Monster(
-              candidate_locations[which].first, candidate_locations[which].second,
-              exemplar_monster->flags)).first;
+              target_x, target_y, exemplar_monster->flags)).first;
+          monster->facing_direction = candidate_directions[which];
           monster->block_destroy_rate = exemplar_monster->block_destroy_rate;
           monster->move_speed = exemplar_monster->move_speed;
           monster->push_speed = exemplar_monster->push_speed;
+          monster->x_speed = offsets.first * monster->move_speed;
+          monster->y_speed = offsets.second * monster->move_speed;
           monster->integrity = 1.0;
 
           ret.events_mask |= Event::MonsterCreated;
@@ -1333,6 +1372,15 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
     block->monsters_killed_this_push = 0;
     ret.events_mask |= Event::BlockPushed;
 
+    if ((block->has_flags(Block::Flag::Brittle)) && (block->decay_rate == 0.0)) {
+      if (responsible_monster.get()) {
+        block->decay_rate = responsible_monster->block_destroy_rate;
+      } else {
+        block->decay_rate = 0.02;
+      }
+      ret.events_mask |= Event::BlockDestroyed;
+    }
+
   } else if ((block->has_flags(Block::Flag::Destructible)) &&
              (block->decay_rate == 0.0)) {
     if (responsible_monster.get()) {
@@ -1342,6 +1390,7 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
     }
     switch (block->special) {
       case BlockSpecial::Indestructible:
+      case BlockSpecial::IndestructibleAndImmovable:
         throw logic_error("indestructible block was destroyed");
 
       case BlockSpecial::Bomb:
@@ -1350,10 +1399,12 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
       case BlockSpecial::Points:
         if (responsible_monster.get()) {
-          ret.scores.emplace_back(responsible_monster, nullptr, this->score_for_monster(), 0, BlockSpecial::None, block->x, block->y);
+          ret.scores.emplace_back(responsible_monster, nullptr,
+              this->score_for_monster(false), 0, BlockSpecial::None, block->x, block->y);
         }
       case BlockSpecial::None:
       case BlockSpecial::Immovable:
+      case BlockSpecial::Brittle:
       case BlockSpecial::Bouncy:
         ret.events_mask |= Event::BlockDestroyed;
         break;
@@ -1431,7 +1482,7 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
               ? Event::PlayerSquished : Event::MonsterSquished;
           // TODO: we probably should have some kind of multiplier for killing
           // lots of monsters with one bomb push
-          ret.scores.emplace_back(block->owner, monster, this->score_for_monster());
+          ret.scores.emplace_back(block->owner, monster, this->score_for_monster(false));
         }
       }
     }
