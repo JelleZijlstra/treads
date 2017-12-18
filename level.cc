@@ -83,6 +83,8 @@ BlockSpecial special_for_name(const char* name) {
     return BlockSpecial::Points;
   } else if (!strcmp(name, "ExtraLife")) {
     return BlockSpecial::ExtraLife;
+  } else if (!strcmp(name, "SkipLevels")) {
+    return BlockSpecial::SkipLevels;
   } else if (!strcmp(name, "Indestructible")) {
     return BlockSpecial::Indestructible;
   } else if (!strcmp(name, "IndestructibleAndImmovable")) {
@@ -120,6 +122,8 @@ const char* name_for_special(BlockSpecial special) {
       return "Points";
     case BlockSpecial::ExtraLife:
       return "ExtraLife";
+    case BlockSpecial::SkipLevels:
+      return "SkipLevels";
     case BlockSpecial::Indestructible:
       return "Indestructible";
     case BlockSpecial::IndestructibleAndImmovable:
@@ -157,6 +161,8 @@ const char* display_name_for_special(BlockSpecial special) {
       return "Points";
     case BlockSpecial::ExtraLife:
       return "Extra Life";
+    case BlockSpecial::SkipLevels:
+      return "Skip Levels";
     case BlockSpecial::Indestructible:
       return "Indestructible";
     case BlockSpecial::IndestructibleAndImmovable:
@@ -485,6 +491,7 @@ LevelState::LevelState(const GenerationParameters& params) :
           block->owner = this->player;
         case BlockSpecial::Points:
         case BlockSpecial::ExtraLife:
+        case BlockSpecial::SkipLevels:
         case BlockSpecial::Invincibility:
         case BlockSpecial::Speed:
         case BlockSpecial::TimeStop:
@@ -961,7 +968,9 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
                                monster->y + offsets.second * 2 * this->grid_pitch)) {
         int64_t bomb_x = monster->x + offsets.first * (this->grid_pitch + monster->push_speed);
         int64_t bomb_y = monster->y + offsets.second * (this->grid_pitch + monster->push_speed);
-        auto block = *this->blocks.emplace(new Block(bomb_x, bomb_y, BlockSpecial::Bomb)).first;
+        auto block = *this->blocks.emplace(new Block(bomb_x, bomb_y,
+            BlockSpecial::Bomb)).first;
+        block->set_flags(Block::Flag::IsBomb);
         block->x_speed = offsets.first * monster->push_speed;
         block->y_speed = offsets.second * monster->push_speed;
         block->owner = monster;
@@ -1462,6 +1471,13 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
           ret.scores.emplace_back(responsible_monster, nullptr, 0, 1, 0, BlockSpecial::None, block->x, block->y);
         }
         ret.events_mask |= Event::LifeCollected;
+        break;
+
+      case BlockSpecial::SkipLevels:
+        if (responsible_monster.get()) {
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, 4, BlockSpecial::None, block->x, block->y);
+        }
+        ret.events_mask |= Event::BonusCollected;
         break;
 
       case BlockSpecial::Invincibility:

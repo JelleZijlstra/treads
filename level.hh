@@ -40,8 +40,11 @@ enum Event {
 
 enum class BlockSpecial {
   None = 0,
+
+  // these are converted to ScoreInfos when destroyed
   Points,
   ExtraLife,
+  SkipLevels,
 
   // these are converted to Flags
   Indestructible,

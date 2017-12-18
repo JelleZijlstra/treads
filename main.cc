@@ -283,7 +283,7 @@ static void render_explosions(shared_ptr<const LevelState> game, int window_w,
 
 static void render_level_state(shared_ptr<const LevelState> game,
     int64_t level_index, int64_t player_lives, int64_t player_score,
-    int window_w, int window_h) {
+    int64_t player_skip_levels, int window_w, int window_h) {
   // draw black background
   glClearColor(0, 0, 0, 0);
 
@@ -306,11 +306,16 @@ static void render_level_state(shared_ptr<const LevelState> game,
   }
 
   // draw the player's score and lives
-    draw_text(-0.99, -0.90, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
-        0.01, false, "Score: %" PRId64, player_score);
+  float aspect_ratio = (float)window_w / window_h;
+  draw_text(-0.99, -0.90, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
+      "Score: %" PRId64, player_score);
   if (level_index != 0) {
-  draw_text(-0.99, -0.80, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
-      0.01, false, "Lives: %" PRId64, player_lives);
+    draw_text(-0.99, -0.80, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
+        "Lives: %" PRId64, player_lives);
+  }
+  if (player_skip_levels) {
+    draw_text(-0.99, -0.70, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
+        "Next level: %" PRId64, level_index + 1 + player_skip_levels);
   }
 
   glEnd();
@@ -360,10 +365,10 @@ static void render_and_delete_annotations(int window_w, int window_h,
 
 static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     int window_h, unordered_set<unique_ptr<Annotation>>& annotations,
-    int64_t player_lives, int64_t player_score, int64_t level_index,
-    int64_t frames_until_next_level, Phase phase) {
-  render_level_state(game, level_index, player_lives, player_score, window_w,
-      window_h);
+    int64_t player_lives, int64_t player_score, int64_t player_skip_levels,
+    int64_t level_index, int64_t frames_until_next_level, Phase phase) {
+  render_level_state(game, level_index, player_lives, player_score,
+      player_skip_levels, window_w, window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
 
   if (frames_until_next_level) {
@@ -373,7 +378,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
       draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.025, true,
           "LEVEL %" PRId64 " COMPLETE", level_index);
       draw_text(0, 0.4, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
-          "Get ready for level %" PRId64, level_index + 1);
+          "Get ready for level %" PRId64, level_index + 1 + player_skip_levels);
     }
 
     glBegin(GL_QUADS);
@@ -626,6 +631,7 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
           } else {
             player_lives--;
           }
+          player_skip_levels = 0;
           generate_random_elements(generation_params[level_index]);
           game.reset(new LevelState(generation_params[level_index]));
         }
@@ -734,6 +740,7 @@ int main(int argc, char* argv[]) {
 
   add_block_special_image(BlockSpecial::Points, media_directory + "/special_points.bmp");
   add_block_special_image(BlockSpecial::ExtraLife, media_directory + "/special_extra_life.bmp");
+  add_block_special_image(BlockSpecial::SkipLevels, media_directory + "/special_skip_levels.bmp");
   add_block_special_image(BlockSpecial::Indestructible, media_directory + "/special_indestructible.bmp");
   add_block_special_image(BlockSpecial::IndestructibleAndImmovable, media_directory + "/special_indestructible_and_immovable.bmp");
   add_block_special_image(BlockSpecial::Immovable, media_directory + "/special_immovable.bmp");
@@ -935,7 +942,8 @@ int main(int argc, char* argv[]) {
       }
 
       render_game_screen(game, window_w, window_h, annotations, player_lives,
-          player_score, level_index, frames_until_next_level, phase);
+          player_score, player_skip_levels, level_index,
+          frames_until_next_level, phase);
 
       if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
