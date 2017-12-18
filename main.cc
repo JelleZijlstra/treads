@@ -308,31 +308,24 @@ static void render_level_state(shared_ptr<const LevelState> game,
     render_monster(game, monster, window_w, window_h);
   }
 
-  // draw the player's score and lives
-  float aspect_ratio = (float)window_w / window_h;
-  draw_text(-0.99, -0.90, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
-      "Score: %" PRId64, player_score);
-  if (level_index != 0) {
-    draw_text(-0.99, -0.80, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
-        "Lives: %" PRId64, player_lives);
-  }
-  if (player_skip_levels) {
-    draw_text(-0.99, -0.70, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false,
-        "Next level: %" PRId64, level_index + 1 + player_skip_levels);
-  }
-
   glEnd();
 
-  const auto& params = game->get_params();
-  for (const auto& block : game->get_blocks()) {
-    float x1 = to_window(block->x, params.w);
-    float x2 = to_window(block->x + params.grid_pitch, params.w);
-    float y1 = to_window(block->y, params.h);
-    float y2 = to_window(block->y + params.grid_pitch, params.h);
-    if (block->special == BlockSpecial::CreatesMonsters) {
-      draw_text((x1 + x2) / 2, -(y1 + y2) / 2, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
-          0.01, true, "%" PRId64, block->frames_until_next_monster);
-    }
+  // draw the player's score and lives
+  float aspect_ratio = (float)window_w / window_h;
+  vector<string> lines;
+  lines.emplace_back(string_printf("Score: %" PRId64, player_score));
+  if (level_index != 0) {
+    lines.emplace_back(string_printf("Lives: %" PRId64, player_lives));
+  }
+  if (player_skip_levels) {
+    lines.emplace_back(string_printf("Next level: %" PRId64, level_index + 1 + player_skip_levels));
+  }
+  lines.emplace_back(string_printf("%.1f%%", game->current_score_proportion() * 100.0));
+
+  float y = -0.9;
+  for (const auto& s : lines) {
+    draw_text(-0.99, y, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false, "%s", s.c_str());
+    y += 0.1;
   }
 }
 

@@ -260,6 +260,8 @@ public:
   };
   FrameEvents exec_frame(int64_t player_control_impulse);
 
+  double current_score_proportion() const;
+
 private:
   GenerationParameters params;
 

@@ -655,10 +655,17 @@ int64_t LevelState::count_blocks_with_special(BlockSpecial special) const {
   return count;
 }
 
+double LevelState::current_score_proportion() const {
+  int64_t score_end_frame = this->updates_per_second * 120;
+  if (this->frames_executed >= score_end_frame) {
+    return 0.0;
+  }
+  return 1.0 - (static_cast<double>(this->frames_executed) / static_cast<double>(score_end_frame));
+}
+
 int64_t LevelState::score_for_monster(bool is_power_monster) const {
   int64_t base = is_power_monster ? this->params.power_monster_score : this->params.basic_monster_score;
-  int64_t ret = base - (this->frames_executed / 100);
-  return (ret > 0) ? ret : 0;
+  return this->current_score_proportion() * base;
 }
 
 uint64_t LevelState::flags_for_monster(bool is_power_monster) const {
