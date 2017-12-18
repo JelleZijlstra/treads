@@ -414,11 +414,8 @@ string Explosion::str() const {
 
 
 
-LevelState::LevelState(const GenerationParameters& params) :
-    grid_pitch(params.grid_pitch), w(params.w), h(params.h),
-    basic_monster_score(params.basic_monster_score),
-    power_monster_score(params.power_monster_score), updates_per_second(30.0f),
-    frames_executed(0), frames_between_monsters(300) {
+LevelState::LevelState(const GenerationParameters& params) : params(params),
+    updates_per_second(30.0f), frames_executed(0), frames_between_monsters(300) {
 
   // the player is a monster, technically
   uint64_t player_flags = Monster::Flag::IsPlayer | Monster::Flag::CanPushBlocks | Monster::Flag::CanDestroyBlocks | (params.player_squishable ? Monster::Flag::Squishable : 0);
@@ -431,16 +428,16 @@ LevelState::LevelState(const GenerationParameters& params) :
   this->player->push_speed = params.push_speed;
 
   // create blocks according to the block map
-  int64_t w_cells = this->w / this->grid_pitch;
-  int64_t h_cells = this->h / this->grid_pitch;
+  int64_t w_cells = this->params.w / this->params.grid_pitch;
+  int64_t h_cells = this->params.h / this->params.grid_pitch;
   if (params.block_map.size() != w_cells * h_cells) {
     throw invalid_argument("block map size doesn\'t match level dimensions");
   }
-  for (int64_t y = 0; y < this->h / this->grid_pitch; y++) {
-    for (int64_t x = 0; x < this->w / this->grid_pitch; x++) {
-      int64_t z = y * (this->w / this->grid_pitch) + x;
+  for (int64_t y = 0; y < this->params.h / this->params.grid_pitch; y++) {
+    for (int64_t x = 0; x < this->params.w / this->params.grid_pitch; x++) {
+      int64_t z = y * (this->params.w / this->params.grid_pitch) + x;
       if (params.block_map[z]) {
-        auto& block = *this->blocks.emplace(new Block(x * this->grid_pitch, y * this->grid_pitch)).first;
+        auto& block = *this->blocks.emplace(new Block(x * this->params.grid_pitch, y * this->params.grid_pitch)).first;
         block->bounce_speed_absorption = params.bounce_speed_absorption;
         block->bomb_speed = params.bomb_speed;
       }
@@ -456,11 +453,8 @@ LevelState::LevelState(const GenerationParameters& params) :
     advance(block_it, rand() % this->blocks.size()); // O(n), sigh...
 
     bool is_power_monster = (this->monsters.size() >= basic_monster_count + 1);
-    uint64_t flags = Monster::Flag::Squishable | Monster::Flag::KillsPlayers |
-        (is_power_monster ? Monster::Flag::IsPower : 0) |
-        ((is_power_monster && params.power_monsters_can_push) ? Monster::Flag::CanPushBlocks : 0);
     auto& monster = *this->monsters.emplace(new Monster((*block_it)->x,
-        (*block_it)->y, flags)).first;
+        (*block_it)->y, this->flags_for_monster(is_power_monster))).first;
     monster->block_destroy_rate = params.block_destroy_rate;
     monster->move_speed = is_power_monster ? params.power_monster_move_speed :
         params.basic_monster_move_speed;
@@ -544,13 +538,13 @@ void LevelState::validate() const {
   //    but push_speed can be 0 if the monster can't push
 
   // (1) w, h, grid_pitch
-  if (this->grid_pitch == 0) {
+  if (this->params.grid_pitch == 0) {
     throw invalid_argument("grid pitch is zero");
   }
-  if ((this->w == 0) || (this->h == 0)) {
+  if ((this->params.w == 0) || (this->params.h == 0)) {
     throw invalid_argument("one or both of the level dimensions is zero");
   }
-  if ((this->w % this->grid_pitch) || (this->h % grid_pitch)) {
+  if ((this->params.w % this->params.grid_pitch) || (this->params.h % params.grid_pitch)) {
     throw invalid_argument(
         "level dimension is not a multiple of the grid pitch");
   }
@@ -558,8 +552,8 @@ void LevelState::validate() const {
   // (2) check that no blocks overlap or are outside the boundaries
   // O(n^2), sigh
   for (const auto& block : this->blocks) {
-    if ((block->x < 0) || (block->x > this->w - this->grid_pitch) ||
-        (block->y < 0) || (block->y > this->h - this->grid_pitch)) {
+    if ((block->x < 0) || (block->x > this->params.w - this->params.grid_pitch) ||
+        (block->y < 0) || (block->y > this->params.h - this->params.grid_pitch)) {
       string block_str = block->str();
       throw invalid_argument(string_printf("%s is outside of the boundary",
           block_str.c_str()));
@@ -581,8 +575,8 @@ void LevelState::validate() const {
   // (3) check that no monsters are outside the boundaries (unlike blocks,
   // monsters may overlap)
   for (const auto& monster : this->monsters) {
-    if ((monster->x < 0) || (monster->x > this->w - this->grid_pitch) ||
-        (monster->y < 0) || (monster->y > this->h - this->grid_pitch)) {
+    if ((monster->x < 0) || (monster->x > this->params.w - this->params.grid_pitch) ||
+        (monster->y < 0) || (monster->y > this->params.h - this->params.grid_pitch)) {
       string monster_str = monster->str();
       throw invalid_argument(string_printf("%s is outside of the boundary",
           monster_str.c_str()));
@@ -591,34 +585,28 @@ void LevelState::validate() const {
 
   // (3) check move_speed and push_speed for all monsters
   for (const auto& monster : this->monsters) {
-    if (this->grid_pitch % monster->move_speed) {
+    if (this->params.grid_pitch % monster->move_speed) {
       auto monster_str = monster->str();
       throw invalid_argument(string_printf(
           "%s has invalid move speed (%" PRId64 " does not divide %" PRIu64")",
-          monster_str.c_str(), monster->move_speed, this->grid_pitch));
+          monster_str.c_str(), monster->move_speed, this->params.grid_pitch));
     }
     if ((monster->push_speed == 0) && (monster->has_flags(Monster::Flag::CanPushBlocks))) {
       auto monster_str = monster->str();
       throw invalid_argument(string_printf("%s has no push speed but can push",
           monster_str.c_str()));
     }
-    if (monster->push_speed && (this->grid_pitch % monster->push_speed)) {
+    if (monster->push_speed && (this->params.grid_pitch % monster->push_speed)) {
       auto monster_str = monster->str();
       throw invalid_argument(string_printf(
           "%s has invalid push speed (%" PRId64 " does not divide %" PRIu64")",
-          monster_str.c_str(), monster->move_speed, this->grid_pitch));
+          monster_str.c_str(), monster->move_speed, this->params.grid_pitch));
     }
   }
 }
 
-int64_t LevelState::get_grid_pitch() const {
-  return this->grid_pitch;
-}
-int64_t LevelState::get_w() const {
-  return this->w;
-}
-int64_t LevelState::get_h() const {
-  return this->h;
+const LevelState::GenerationParameters& LevelState::get_params() const {
+  return this->params;
 }
 
 const std::shared_ptr<Monster> LevelState::get_player() const {
@@ -668,18 +656,24 @@ int64_t LevelState::count_blocks_with_special(BlockSpecial special) const {
 }
 
 int64_t LevelState::score_for_monster(bool is_power_monster) const {
-  int64_t base = is_power_monster ? this->power_monster_score : this->basic_monster_score;
+  int64_t base = is_power_monster ? this->params.power_monster_score : this->params.basic_monster_score;
   int64_t ret = base - (this->frames_executed / 100);
   return (ret > 0) ? ret : 0;
 }
 
+uint64_t LevelState::flags_for_monster(bool is_power_monster) const {
+  return Monster::Flag::Squishable | Monster::Flag::KillsPlayers |
+      (is_power_monster ? Monster::Flag::IsPower : 0) |
+      ((is_power_monster && this->params.power_monsters_can_push) ? Monster::Flag::CanPushBlocks : 0);
+}
+
 bool LevelState::is_aligned(int64_t pos) const {
-  return (pos % this->grid_pitch) == 0;
+  return (pos % this->params.grid_pitch) == 0;
 }
 
 bool LevelState::is_within_bounds(int64_t x, int64_t y) const {
-  return (x >= 0) && (x <= this->w - this->grid_pitch) &&
-         (y >= 0) && (y <= this->h - this->grid_pitch);
+  return (x >= 0) && (x <= this->params.w - this->params.grid_pitch) &&
+         (y >= 0) && (y <= this->params.h - this->params.grid_pitch);
 }
 
 shared_ptr<Block> LevelState::find_block(int64_t x, int64_t y) {
@@ -693,14 +687,14 @@ shared_ptr<Block> LevelState::find_block(int64_t x, int64_t y) {
 
 bool LevelState::space_is_empty(int64_t x, int64_t y) const {
   // if any part of the space is out of bounds, it's not empty
-  if ((x < 0) || (y < 0) || (x >= this->w) || (y >= this->h)) {
+  if ((x < 0) || (y < 0) || (x >= this->params.w) || (y >= this->params.h)) {
     return false;
   }
 
-  int64_t x_min = x - grid_pitch;
-  int64_t y_min = y - grid_pitch;
-  int64_t x_max = x + grid_pitch;
-  int64_t y_max = y + grid_pitch;
+  int64_t x_min = x - this->params.grid_pitch;
+  int64_t y_min = y - this->params.grid_pitch;
+  int64_t x_max = x + this->params.grid_pitch;
+  int64_t y_max = y + this->params.grid_pitch;
   for (auto& block : this->blocks) {
     if ((block->x > x_min) && (block->x < x_max) &&
         (block->y > y_min) && (block->y < y_max)) {
@@ -712,8 +706,8 @@ bool LevelState::space_is_empty(int64_t x, int64_t y) const {
 
 bool LevelState::check_stationary_collision(int64_t this_x, int64_t this_y,
     int64_t other_x, int64_t other_y) const {
-  return ((llabs(this_x - other_x) < this->grid_pitch) &&
-          (llabs(this_y - other_y) < this->grid_pitch));
+  return ((llabs(this_x - other_x) < this->params.grid_pitch) &&
+          (llabs(this_y - other_y) < this->params.grid_pitch));
 }
 
 bool LevelState::check_moving_collision(int64_t this_x, int64_t this_y,
@@ -723,18 +717,18 @@ bool LevelState::check_moving_collision(int64_t this_x, int64_t this_y,
     int64_t new_x = this_x + this_x_speed;
 
     // if the monster is too far up or down, there's no collision
-    if ((other_y >= this_y + this->grid_pitch) ||
-        (other_y + this->grid_pitch <= this_y)) {
+    if ((other_y >= this_y + this->params.grid_pitch) ||
+        (other_y + this->params.grid_pitch <= this_y)) {
       return false;
     }
 
     // if the object is moving left, check its left edge against the other
     // object's entirety. otherwise, check its right edge
     if (this_x_speed < 0) {
-      return (new_x < other_x + this->grid_pitch) && (new_x > other_x);
+      return (new_x < other_x + this->params.grid_pitch) && (new_x > other_x);
     } else {
-      return (new_x + this->grid_pitch < other_x + this->grid_pitch) &&
-             (new_x + this->grid_pitch > other_x);
+      return (new_x + this->params.grid_pitch < other_x + this->params.grid_pitch) &&
+             (new_x + this->params.grid_pitch > other_x);
     }
 
   } else if (this_y_speed) {
@@ -742,16 +736,16 @@ bool LevelState::check_moving_collision(int64_t this_x, int64_t this_y,
     int64_t new_y = this_y + this_y_speed;
 
     // if the monster is too far up or down, there's no collision
-    if ((other_x >= this_x + this->grid_pitch) ||
-        (other_x + this->grid_pitch <= this_x)) {
+    if ((other_x >= this_x + this->params.grid_pitch) ||
+        (other_x + this->params.grid_pitch <= this_x)) {
       return false;
     }
 
     if (this_y_speed < 0) {
-      return (new_y < other_y + this->grid_pitch) && (new_y > other_y);
+      return (new_y < other_y + this->params.grid_pitch) && (new_y > other_y);
     } else {
-      return (new_y + this->grid_pitch < other_y + this->grid_pitch) &&
-             (new_y + this->grid_pitch > other_y);
+      return (new_y + this->params.grid_pitch < other_y + this->params.grid_pitch) &&
+             (new_y + this->params.grid_pitch > other_y);
     }
 
   }
@@ -846,16 +840,16 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
       // figure out in which directions the monster can move
       uint8_t available_directions = Impulse::None;
-      if (this->space_is_empty(monster->x - this->grid_pitch, monster->y)) {
+      if (this->space_is_empty(monster->x - this->params.grid_pitch, monster->y)) {
         available_directions |= Impulse::Left;
       }
-      if (this->space_is_empty(monster->x + this->grid_pitch, monster->y)) {
+      if (this->space_is_empty(monster->x + this->params.grid_pitch, monster->y)) {
         available_directions |= Impulse::Right;
       }
-      if (this->space_is_empty(monster->x, monster->y - this->grid_pitch)) {
+      if (this->space_is_empty(monster->x, monster->y - this->params.grid_pitch)) {
         available_directions |= Impulse::Up;
       }
-      if (this->space_is_empty(monster->x, monster->y + this->grid_pitch)) {
+      if (this->space_is_empty(monster->x, monster->y + this->params.grid_pitch)) {
         available_directions |= Impulse::Down;
       }
 
@@ -954,20 +948,20 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
     // (2.2) check if there's a block in the appropriate spot
     auto offsets = offsets_for_direction(monster->facing_direction);
-    auto block = this->find_block(monster->x + offsets.first * this->grid_pitch,
-                                  monster->y + offsets.second * this->grid_pitch);
+    auto block = this->find_block(monster->x + offsets.first * this->params.grid_pitch,
+                                  monster->y + offsets.second * this->params.grid_pitch);
     if (!block.get()) {
       // (2.2.1) no block; the monster throws a bomb if it has ThrowBombs and
       // there are two empty cells in front of it
       // TODO: do this more efficiently by not calling space_is_empty (and
       // iterating all blocks) twice
       if (monster->has_special(BlockSpecial::ThrowBombs) &&
-          this->space_is_empty(monster->x + offsets.first * this->grid_pitch,
-                               monster->y + offsets.second * this->grid_pitch) &&
-          this->space_is_empty(monster->x + offsets.first * 2 * this->grid_pitch,
-                               monster->y + offsets.second * 2 * this->grid_pitch)) {
-        int64_t bomb_x = monster->x + offsets.first * (this->grid_pitch + monster->push_speed);
-        int64_t bomb_y = monster->y + offsets.second * (this->grid_pitch + monster->push_speed);
+          this->space_is_empty(monster->x + offsets.first * this->params.grid_pitch,
+                               monster->y + offsets.second * this->params.grid_pitch) &&
+          this->space_is_empty(monster->x + offsets.first * 2 * this->params.grid_pitch,
+                               monster->y + offsets.second * 2 * this->params.grid_pitch)) {
+        int64_t bomb_x = monster->x + offsets.first * (this->params.grid_pitch + monster->push_speed);
+        int64_t bomb_y = monster->y + offsets.second * (this->params.grid_pitch + monster->push_speed);
         auto block = *this->blocks.emplace(new Block(bomb_x, bomb_y,
             BlockSpecial::Bomb)).first;
         block->set_flags(Block::Flag::IsBomb);
@@ -1025,7 +1019,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     // stop or bounce)
     // (5.1.1) left edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
-        block->y_speed, -this->grid_pitch, block->y)) {
+        block->y_speed, -this->params.grid_pitch, block->y)) {
       block->x = 0;
       block->x_speed = -block->x_speed + block->bounce_speed_absorption * sgn(block->x_speed);
       collision = true;
@@ -1033,15 +1027,15 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
     // (5.1.2) right edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
-        block->y_speed, this->w, block->y)) {
-      block->x = this->w - this->grid_pitch;
+        block->y_speed, this->params.w, block->y)) {
+      block->x = this->params.w - this->params.grid_pitch;
       block->x_speed = -block->x_speed + block->bounce_speed_absorption * sgn(block->x_speed);
       collision = true;
       ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
     }
     // (5.1.3) top edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
-        block->y_speed, block->x, -this->grid_pitch)) {
+        block->y_speed, block->x, -this->params.grid_pitch)) {
       block->y = 0;
       block->y_speed = -block->y_speed + block->bounce_speed_absorption * sgn(block->y_speed);
       collision = true;
@@ -1049,8 +1043,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
     // (5.1.4) bottom edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
-        block->y_speed, block->x, this->h)) {
-      block->y = this->h - this->grid_pitch;
+        block->y_speed, block->x, this->params.h)) {
+      block->y = this->params.h - this->params.grid_pitch;
       block->y_speed = -block->y_speed + block->bounce_speed_absorption * sgn(block->y_speed);
       collision = true;
       ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
@@ -1074,13 +1068,13 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         if (block->x_speed) {
           bool elastic_bounce = (other_block->has_flags(Block::Flag::Bouncy)) ||
               !this->is_aligned(other_block->x);
-          block->x = other_block->x - sgn(block->x_speed) * this->grid_pitch;
+          block->x = other_block->x - sgn(block->x_speed) * this->params.grid_pitch;
           block->x_speed = -block->x_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->x_speed);
           ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
         } else {
           bool elastic_bounce = (other_block->has_flags(Block::Flag::Bouncy)) ||
               !this->is_aligned(other_block->y);
-          block->y = other_block->y - sgn(block->y_speed) * this->grid_pitch;
+          block->y = other_block->y - sgn(block->y_speed) * this->params.grid_pitch;
           block->y_speed = -block->y_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->y_speed);
           ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
         }
@@ -1114,12 +1108,12 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       } else {
         if (block->x_speed) {
           bool elastic_bounce = !this->is_aligned(other_monster->x);
-          block->x = other_monster->x - sgn(block->x_speed) * this->grid_pitch;
+          block->x = other_monster->x - sgn(block->x_speed) * this->params.grid_pitch;
           block->x_speed = -block->x_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->x_speed);
           ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
         } else {
           bool elastic_bounce = !this->is_aligned(other_monster->y);
-          block->y = other_monster->y - sgn(block->y_speed) * this->grid_pitch;
+          block->y = other_monster->y - sgn(block->y_speed) * this->params.grid_pitch;
           block->y_speed = -block->y_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->y_speed);
           ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
         }
@@ -1164,29 +1158,29 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     // stop)
     // (6.1.1) left edge
     if (this->check_moving_collision(monster->x, monster->y, monster->x_speed,
-        monster->y_speed, -this->grid_pitch, monster->y)) {
+        monster->y_speed, -this->params.grid_pitch, monster->y)) {
       monster->x = 0;
       monster->x_speed = 0;
       collision = true;
     }
     // (6.1.2) right edge
     if (this->check_moving_collision(monster->x, monster->y, monster->x_speed,
-        monster->y_speed, this->w, monster->y)) {
-      monster->x = this->w - this->grid_pitch;
+        monster->y_speed, this->params.w, monster->y)) {
+      monster->x = this->params.w - this->params.grid_pitch;
       monster->x_speed = 0;
       collision = true;
     }
     // (6.1.3) top edge
     if (this->check_moving_collision(monster->x, monster->y, monster->x_speed,
-        monster->y_speed, monster->x, -this->grid_pitch)) {
+        monster->y_speed, monster->x, -this->params.grid_pitch)) {
       monster->y = 0;
       monster->y_speed = 0;
       collision = true;
     }
     // (6.1.4) bottom edge
     if (this->check_moving_collision(monster->x, monster->y, monster->x_speed,
-        monster->y_speed, monster->x, this->h)) {
-      monster->y = this->h - this->grid_pitch;
+        monster->y_speed, monster->x, this->params.h)) {
+      monster->y = this->params.h - this->params.grid_pitch;
       monster->y_speed = 0;
       collision = true;
     }
@@ -1204,7 +1198,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         // don't let its speed increase or change signs.
         // TODO: can this be collapsed into something simpler?
         if (monster->x_speed) {
-          monster->x = other_block->x - sgn(monster->x_speed) * this->grid_pitch;
+          monster->x = other_block->x - sgn(monster->x_speed) * this->params.grid_pitch;
           if (monster->x_speed < 0) { // monster moving left
             if (other_block->x_speed < 0) { // block moving left
               if (-other_block->x_speed < -monster->x_speed) { // block is slower
@@ -1228,7 +1222,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
           }
 
         } else {
-          monster->y = other_block->y - sgn(monster->y_speed) * this->grid_pitch;
+          monster->y = other_block->y - sgn(monster->y_speed) * this->params.grid_pitch;
           if (monster->y_speed < 0) { // monster moving left
             if (other_block->y_speed < 0) { // block moving left
               if (-other_block->y_speed < -monster->y_speed) { // block is slower
@@ -1291,10 +1285,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
             monster->x_speed, monster->y_speed, other_monster->x,
             other_monster->y)) {
           if (monster->x_speed) {
-            monster->x = other_monster->x - sgn(monster->x_speed) * this->grid_pitch;
+            monster->x = other_monster->x - sgn(monster->x_speed) * this->params.grid_pitch;
             monster->x_speed = other_monster->x_speed;
           } else {
-            monster->y = other_monster->y - sgn(monster->y_speed) * this->grid_pitch;
+            monster->y = other_monster->y - sgn(monster->y_speed) * this->params.grid_pitch;
             monster->y_speed = other_monster->y_speed;
           }
         }
@@ -1322,7 +1316,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
   // (7) attenuate monster generators
   for (auto block : this->blocks) {
-    if (block->special != BlockSpecial::CreatesMonsters) {
+    if ((block->special != BlockSpecial::CreatesMonsters) ||
+        (block->integrity != 1.0)) {
       continue;
     }
     if (block->frames_until_next_monster == 0) {
@@ -1337,8 +1332,8 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
             ((offsets.second * block->y_speed) > 0)) {
           continue;
         }
-        int64_t target_x = block->x + offsets.first * this->grid_pitch;
-        int64_t target_y = block->y + offsets.second * this->grid_pitch;
+        int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
+        int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
         if (!this->is_within_bounds(target_x, target_y)) {
           continue;
         }
@@ -1355,37 +1350,24 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         // create a monster
         int64_t which = random_int(0, candidate_directions.size() - 1);
 
-        // choose another non-player monster at "random" to copy flags from
-        // for now, just choose the first one because I'm lazy
-        auto exemplar_monster_it = this->monsters.begin();
-        while ((exemplar_monster_it != this->monsters.end()) &&
-            (*exemplar_monster_it)->has_flags(Monster::Flag::IsPlayer)) {
-          exemplar_monster_it++;
-        }
-        // it's possible that we reach monsters.end() here if the player killed
-        // the last monster on the same frame that a new one would be created.
-        // if that happened, just let the player win
-        if (exemplar_monster_it != this->monsters.end()) {
-          auto exemplar_monster = *exemplar_monster_it;
+        auto offsets = offsets_for_direction(candidate_directions[which]);
+        int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
+        int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
 
-          auto offsets = offsets_for_direction(candidate_directions[which]);
-          int64_t target_x = block->x + offsets.first * this->grid_pitch;
-          int64_t target_y = block->y + offsets.second * this->grid_pitch;
+        bool is_power_monster = false; // TODO: should randomly choose
+        auto& monster = *this->monsters.emplace(new Monster(
+            target_x, target_y, this->flags_for_monster(is_power_monster))).first;
+        monster->facing_direction = candidate_directions[which];
+        monster->block_destroy_rate = this->params.block_destroy_rate;
+        monster->move_speed = is_power_monster ? this->params.power_monster_move_speed : this->params.basic_monster_move_speed;
+        monster->push_speed = this->params.push_speed;
+        monster->x_speed = offsets.first * monster->move_speed;
+        monster->y_speed = offsets.second * monster->move_speed;
+        monster->integrity = 1.0;
 
-          auto& monster = *this->monsters.emplace(new Monster(
-              target_x, target_y, exemplar_monster->flags)).first;
-          monster->facing_direction = candidate_directions[which];
-          monster->block_destroy_rate = exemplar_monster->block_destroy_rate;
-          monster->move_speed = exemplar_monster->move_speed;
-          monster->push_speed = exemplar_monster->push_speed;
-          monster->x_speed = offsets.first * monster->move_speed;
-          monster->y_speed = offsets.second * monster->move_speed;
-          monster->integrity = 1.0;
+        ret.events_mask |= Event::MonsterCreated;
 
-          ret.events_mask |= Event::MonsterCreated;
-
-          block->frames_until_next_monster = this->frames_between_monsters;
-        }
+        block->frames_until_next_monster = this->frames_between_monsters;
       }
     } else {
       block->frames_until_next_monster--;
@@ -1421,8 +1403,8 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
 
   auto offsets = offsets_for_direction(direction);
   if ((block->has_flags(Block::Flag::Pushable)) &&
-      this->space_is_empty(block->x + offsets.first * this->grid_pitch,
-                           block->y + offsets.second * this->grid_pitch)) {
+      this->space_is_empty(block->x + offsets.first * this->params.grid_pitch,
+                           block->y + offsets.second * this->params.grid_pitch)) {
     block->x_speed = offsets.first * speed;
     block->y_speed = offsets.second * speed;
     block->monsters_killed_this_push = 0;
@@ -1514,8 +1496,8 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
 
   for (auto direction : all_directions) {
     auto offsets = offsets_for_direction(direction);
-    int64_t target_x = block->x + offsets.first * this->grid_pitch;
-    int64_t target_y = block->y + offsets.second * this->grid_pitch;
+    int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
+    int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
     if (!this->is_within_bounds(target_x, target_y)) {
       continue;
     }

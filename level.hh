@@ -219,14 +219,11 @@ public:
   // checks that the level will behave properly when exec_frame is called
   void validate() const;
 
-  int64_t get_grid_pitch() const;
-  int64_t get_w() const;
-  int64_t get_h() const;
-
   const std::shared_ptr<Monster> get_player() const;
   const std::unordered_set<std::shared_ptr<Monster>>& get_monsters() const;
   const std::unordered_set<std::shared_ptr<Block>>& get_blocks() const;
   const std::unordered_set<std::shared_ptr<struct Explosion>>& get_explosions() const;
+  const GenerationParameters& get_params() const;
 
   float get_updates_per_second() const;
   int64_t get_frames_executed() const;
@@ -264,17 +261,12 @@ public:
   FrameEvents exec_frame(int64_t player_control_impulse);
 
 private:
-  int64_t grid_pitch;
-  int64_t w;
-  int64_t h;
+  GenerationParameters params;
 
   std::shared_ptr<Monster> player;
   std::unordered_set<std::shared_ptr<Monster>> monsters;
   std::unordered_set<std::shared_ptr<Block>> blocks;
   std::unordered_set<std::shared_ptr<struct Explosion>> explosions;
-
-  int64_t basic_monster_score;
-  int64_t power_monster_score;
 
   float updates_per_second;
   int64_t frames_executed;
@@ -282,6 +274,7 @@ private:
   int64_t frames_between_monsters;
 
   int64_t score_for_monster(bool is_power_monster) const;
+  uint64_t flags_for_monster(bool is_power_monster) const;
 
   // checks if the given position is a multiple of the grid pitch
   bool is_aligned(int64_t pos) const;

@@ -93,10 +93,11 @@ static void render_block(shared_ptr<const LevelState> game,
     glGray2f(block_brightness, block->integrity);
   }
 
-  float x1 = to_window(block->x, game->get_w());
-  float x2 = to_window(block->x + game->get_grid_pitch(), game->get_w());
-  float y1 = to_window(block->y, game->get_h());
-  float y2 = to_window(block->y + game->get_grid_pitch(), game->get_h());
+  const auto& params = game->get_params();
+  float x1 = to_window(block->x, params.w);
+  float x2 = to_window(block->x + params.grid_pitch, params.w);
+  float y1 = to_window(block->y, params.h);
+  float y2 = to_window(block->y + params.grid_pitch, params.h);
   aligned_rect(x1, x2, y1, y2);
 
   if (block->special != BlockSpecial::None) {
@@ -107,19 +108,20 @@ static void render_block(shared_ptr<const LevelState> game,
 
 static void render_monster(shared_ptr<const LevelState> game,
     shared_ptr<const Monster> monster, int window_w, int window_h) {
-  float x1 = to_window(monster->x, game->get_w());
-  float x2 = to_window(monster->x + game->get_grid_pitch(), game->get_w());
-  float y1 = to_window(monster->y, game->get_h());
-  float y2 = to_window(monster->y + game->get_grid_pitch(), game->get_h());
+  const auto& params = game->get_params();
+  float x1 = to_window(monster->x, params.w);
+  float x2 = to_window(monster->x + params.grid_pitch, params.w);
+  float y1 = to_window(monster->y, params.h);
+  float y2 = to_window(monster->y + params.grid_pitch, params.h);
 
   if (monster->facing_direction == Impulse::Right || monster->facing_direction == Impulse::Left) {
-    int64_t tread_pitch = game->get_grid_pitch() / 4;
-    float tread_boundary_1 = to_window(((monster->x + tread_pitch) / tread_pitch) * tread_pitch, game->get_w());
-    float tread_boundary_2 = to_window(((monster->x + 2 * tread_pitch) / tread_pitch) * tread_pitch, game->get_w());
-    float tread_boundary_3 = to_window(((monster->x + 3 * tread_pitch) / tread_pitch) * tread_pitch, game->get_w());
-    float tread_boundary_4 = to_window(((monster->x + 4 * tread_pitch) / tread_pitch) * tread_pitch, game->get_w());
-    float tread_y2 = to_window(monster->y + tread_pitch, game->get_h());
-    float tread_y3 = to_window(monster->y + game->get_grid_pitch() - tread_pitch, game->get_h());
+    int64_t tread_pitch = params.grid_pitch / 4;
+    float tread_boundary_1 = to_window(((monster->x + tread_pitch) / tread_pitch) * tread_pitch, params.w);
+    float tread_boundary_2 = to_window(((monster->x + 2 * tread_pitch) / tread_pitch) * tread_pitch, params.w);
+    float tread_boundary_3 = to_window(((monster->x + 3 * tread_pitch) / tread_pitch) * tread_pitch, params.w);
+    float tread_boundary_4 = to_window(((monster->x + 4 * tread_pitch) / tread_pitch) * tread_pitch, params.w);
+    float tread_y2 = to_window(monster->y + tread_pitch, params.h);
+    float tread_y3 = to_window(monster->y + params.grid_pitch - tread_pitch, params.h);
 
     // draw top treads
     bool first_light = ((monster->x / tread_pitch) & 1);
@@ -146,13 +148,13 @@ static void render_monster(shared_ptr<const LevelState> game,
     aligned_rect(tread_boundary_4, x2,               tread_y3, y2);
 
   } else {
-    int64_t tread_pitch = game->get_grid_pitch() / 4;
-    float tread_boundary_1 = to_window(((monster->y + tread_pitch) / tread_pitch) * tread_pitch, game->get_h());
-    float tread_boundary_2 = to_window(((monster->y + 2 * tread_pitch) / tread_pitch) * tread_pitch, game->get_h());
-    float tread_boundary_3 = to_window(((monster->y + 3 * tread_pitch) / tread_pitch) * tread_pitch, game->get_h());
-    float tread_boundary_4 = to_window(((monster->y + 4 * tread_pitch) / tread_pitch) * tread_pitch, game->get_h());
-    float tread_x2 = to_window(monster->x + tread_pitch, game->get_w());
-    float tread_x3 = to_window(monster->x + game->get_grid_pitch() - tread_pitch, game->get_w());
+    int64_t tread_pitch = params.grid_pitch / 4;
+    float tread_boundary_1 = to_window(((monster->y + tread_pitch) / tread_pitch) * tread_pitch, params.h);
+    float tread_boundary_2 = to_window(((monster->y + 2 * tread_pitch) / tread_pitch) * tread_pitch, params.h);
+    float tread_boundary_3 = to_window(((monster->y + 3 * tread_pitch) / tread_pitch) * tread_pitch, params.h);
+    float tread_boundary_4 = to_window(((monster->y + 4 * tread_pitch) / tread_pitch) * tread_pitch, params.h);
+    float tread_x2 = to_window(monster->x + tread_pitch, params.w);
+    float tread_x3 = to_window(monster->x + params.grid_pitch - tread_pitch, params.w);
 
     // draw top treads
     bool first_light = ((monster->y / tread_pitch) & 1);
@@ -187,47 +189,47 @@ static void render_monster(shared_ptr<const LevelState> game,
   } else {
     glColor4f(0.9, 0, 0, monster->integrity);
   }
-  float body_x1 = to_window(monster->x + game->get_grid_pitch() / 8, game->get_w());
-  float body_x2 = to_window(monster->x + (game->get_grid_pitch() * 7) / 8, game->get_w());
-  float body_y1 = to_window(monster->y + game->get_grid_pitch() / 8, game->get_h());
-  float body_y2 = to_window(monster->y + (game->get_grid_pitch() * 7) / 8, game->get_h());
+  float body_x1 = to_window(monster->x + params.grid_pitch / 8, params.w);
+  float body_x2 = to_window(monster->x + (params.grid_pitch * 7) / 8, params.w);
+  float body_y1 = to_window(monster->y + params.grid_pitch / 8, params.h);
+  float body_y2 = to_window(monster->y + (params.grid_pitch * 7) / 8, params.h);
   aligned_rect(body_x1, body_x2, body_y1, body_y2);
 
   // draw eyes
   glColor4f(0, 0, 0, monster->integrity);
   if (monster->facing_direction == Impulse::Left) {
-    float x1 = to_window(monster->x + 2 * game->get_grid_pitch() / 8, game->get_w());
-    float x2 = to_window(monster->x + 3 * game->get_grid_pitch() / 8, game->get_w());
-    aligned_rect(x1, x2, to_window(monster->y + 2 * game->get_grid_pitch() / 8, game->get_h()),
-        to_window(monster->y + 3 * game->get_grid_pitch() / 8, game->get_h()));
-    aligned_rect(x1, x2, to_window(monster->y + 5 * game->get_grid_pitch() / 8, game->get_h()),
-        to_window(monster->y + 6 * game->get_grid_pitch() / 8, game->get_h()));
+    float x1 = to_window(monster->x + 2 * params.grid_pitch / 8, params.w);
+    float x2 = to_window(monster->x + 3 * params.grid_pitch / 8, params.w);
+    aligned_rect(x1, x2, to_window(monster->y + 2 * params.grid_pitch / 8, params.h),
+        to_window(monster->y + 3 * params.grid_pitch / 8, params.h));
+    aligned_rect(x1, x2, to_window(monster->y + 5 * params.grid_pitch / 8, params.h),
+        to_window(monster->y + 6 * params.grid_pitch / 8, params.h));
   } else if (monster->facing_direction == Impulse::Right) {
-    float x1 = to_window(monster->x + 5 * game->get_grid_pitch() / 8, game->get_w());
-    float x2 = to_window(monster->x + 6 * game->get_grid_pitch() / 8, game->get_w());
-    aligned_rect(x1, x2, to_window(monster->y + 2 * game->get_grid_pitch() / 8, game->get_h()),
-        to_window(monster->y + 3 * game->get_grid_pitch() / 8, game->get_h()));
-    aligned_rect(x1, x2, to_window(monster->y + 5 * game->get_grid_pitch() / 8, game->get_h()),
-        to_window(monster->y + 6 * game->get_grid_pitch() / 8, game->get_h()));
+    float x1 = to_window(monster->x + 5 * params.grid_pitch / 8, params.w);
+    float x2 = to_window(monster->x + 6 * params.grid_pitch / 8, params.w);
+    aligned_rect(x1, x2, to_window(monster->y + 2 * params.grid_pitch / 8, params.h),
+        to_window(monster->y + 3 * params.grid_pitch / 8, params.h));
+    aligned_rect(x1, x2, to_window(monster->y + 5 * params.grid_pitch / 8, params.h),
+        to_window(monster->y + 6 * params.grid_pitch / 8, params.h));
   } else if (monster->facing_direction == Impulse::Up) {
-    float y1 = to_window(monster->y + 2 * game->get_grid_pitch() / 8, game->get_h());
-    float y2 = to_window(monster->y + 3 * game->get_grid_pitch() / 8, game->get_h());
-    aligned_rect(to_window(monster->x + 2 * game->get_grid_pitch() / 8, game->get_w()),
-        to_window(monster->x + 3 * game->get_grid_pitch() / 8, game->get_w()), y1, y2);
-    aligned_rect(to_window(monster->x + 5 * game->get_grid_pitch() / 8, game->get_w()),
-        to_window(monster->x + 6 * game->get_grid_pitch() / 8, game->get_w()), y1, y2);
+    float y1 = to_window(monster->y + 2 * params.grid_pitch / 8, params.h);
+    float y2 = to_window(monster->y + 3 * params.grid_pitch / 8, params.h);
+    aligned_rect(to_window(monster->x + 2 * params.grid_pitch / 8, params.w),
+        to_window(monster->x + 3 * params.grid_pitch / 8, params.w), y1, y2);
+    aligned_rect(to_window(monster->x + 5 * params.grid_pitch / 8, params.w),
+        to_window(monster->x + 6 * params.grid_pitch / 8, params.w), y1, y2);
   } else if (monster->facing_direction == Impulse::Down) {
-    float y1 = to_window(monster->y + 5 * game->get_grid_pitch() / 8, game->get_h());
-    float y2 = to_window(monster->y + 6 * game->get_grid_pitch() / 8, game->get_h());
-    aligned_rect(to_window(monster->x + 2 * game->get_grid_pitch() / 8, game->get_w()),
-        to_window(monster->x + 3 * game->get_grid_pitch() / 8, game->get_w()), y1, y2);
-    aligned_rect(to_window(monster->x + 5 * game->get_grid_pitch() / 8, game->get_w()),
-        to_window(monster->x + 6 * game->get_grid_pitch() / 8, game->get_w()), y1, y2);
+    float y1 = to_window(monster->y + 5 * params.grid_pitch / 8, params.h);
+    float y2 = to_window(monster->y + 6 * params.grid_pitch / 8, params.h);
+    aligned_rect(to_window(monster->x + 2 * params.grid_pitch / 8, params.w),
+        to_window(monster->x + 3 * params.grid_pitch / 8, params.w), y1, y2);
+    aligned_rect(to_window(monster->x + 5 * params.grid_pitch / 8, params.w),
+        to_window(monster->x + 6 * params.grid_pitch / 8, params.w), y1, y2);
   }
 
   // if the monster has powerups, draw the bars half a cell above the monster.
   // but if it's in the top row, draw below instead
-  bool below = (monster->y < game->get_grid_pitch());
+  bool below = (monster->y < params.grid_pitch);
   float bar_y = below ? (y2 + 3 * (y2 - y1) / 8) : (y1 - (y2 - y1) / 2);
   float bar_center = (x1 + x2) / 2;
   for (const auto& it : monster->special_to_frames_remaining) {
@@ -266,11 +268,12 @@ static void render_explosions(shared_ptr<const LevelState> game, int window_w,
   }
 
   glBegin(GL_QUADS);
+  const auto& params = game->get_params();
   for (const auto& explosion : explosions) {
-    float x1 = to_window(explosion->x, game->get_w());
-    float x2 = to_window(explosion->x + game->get_grid_pitch(), game->get_w());
-    float y1 = to_window(explosion->y, game->get_h());
-    float y2 = to_window(explosion->y + game->get_grid_pitch(), game->get_h());
+    float x1 = to_window(explosion->x, params.w);
+    float x2 = to_window(explosion->x + params.grid_pitch, params.w);
+    float y1 = to_window(explosion->y, params.h);
+    float y2 = to_window(explosion->y + params.grid_pitch, params.h);
 
     glColor4f(1.0, 0.5, 0.0,
         (explosion->integrity > 1.0) ? 1.0 : explosion->integrity);
@@ -319,6 +322,18 @@ static void render_level_state(shared_ptr<const LevelState> game,
   }
 
   glEnd();
+
+  const auto& params = game->get_params();
+  for (const auto& block : game->get_blocks()) {
+    float x1 = to_window(block->x, params.w);
+    float x2 = to_window(block->x + params.grid_pitch, params.w);
+    float y1 = to_window(block->y, params.h);
+    float y2 = to_window(block->y + params.grid_pitch, params.h);
+    if (block->special == BlockSpecial::CreatesMonsters) {
+      draw_text((x1 + x2) / 2, -(y1 + y2) / 2, 0.0, 0.8, 0.0, 1.0, (float)window_w / window_h,
+          0.01, true, "%" PRId64, block->frames_until_next_monster);
+    }
+  }
 }
 
 
@@ -640,19 +655,19 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
         phase = Phase::Playing;
       }
 
-    } else if ((key == GLFW_KEY_LEFT) && ((phase == Phase::Playing) || (phase == Phase::Paused))) {
+    } else if (key == GLFW_KEY_LEFT) {
       current_impulse |= Impulse::Left;
       phase = Phase::Playing;
-    } else if ((key == GLFW_KEY_RIGHT) && ((phase == Phase::Playing) || (phase == Phase::Paused))) {
+    } else if (key == GLFW_KEY_RIGHT) {
       current_impulse |= Impulse::Right;
       phase = Phase::Playing;
-    } else if ((key == GLFW_KEY_UP) && ((phase == Phase::Playing) || (phase == Phase::Paused))) {
+    } else if (key == GLFW_KEY_UP) {
       current_impulse |= Impulse::Up;
       phase = Phase::Playing;
-    } else if ((key == GLFW_KEY_DOWN) && ((phase == Phase::Playing) || (phase == Phase::Paused))) {
+    } else if (key == GLFW_KEY_DOWN) {
       current_impulse |= Impulse::Down;
       phase = Phase::Playing;
-    } else if ((key == GLFW_KEY_SPACE) && ((phase == Phase::Playing) || (phase == Phase::Paused))) {
+    } else if (key == GLFW_KEY_SPACE) {
       current_impulse |= Impulse::Push;
       phase = Phase::Playing;
     }
@@ -713,6 +728,14 @@ static void add_block_special_image(BlockSpecial special,
 }
 
 int main(int argc, char* argv[]) {
+
+  for (int x = 1; x < argc; x++) {
+    if (!strncmp(argv[x], "--level-index=", 14)) {
+      level_index = strtoull(&argv[x][14], NULL, 0);
+    } else {
+      throw invalid_argument("unknown command-line option");
+    }
+  }
 
   srand(time(NULL) ^ getpid());
 
@@ -778,10 +801,10 @@ int main(int argc, char* argv[]) {
 
   // generate the level
   generation_params = load_generation_params(media_directory + "/levels.json");
-  generate_random_elements(generation_params[0]);
-  game.reset(new LevelState(generation_params[0]));
-  uint64_t w_cells = generation_params[0].w / generation_params[0].grid_pitch;
-  uint64_t h_cells = generation_params[0].h / generation_params[0].grid_pitch;
+  generate_random_elements(generation_params[level_index]);
+  game.reset(new LevelState(generation_params[level_index]));
+  uint64_t w_cells = generation_params[level_index].w / generation_params[level_index].grid_pitch;
+  uint64_t h_cells = generation_params[level_index].h / generation_params[level_index].grid_pitch;
 
   // auto-size the window based on the primary monitor size
   GLFWmonitor* monitor = glfwGetPrimaryMonitor();
@@ -871,10 +894,11 @@ int main(int argc, char* argv[]) {
                 player_skip_levels += score.skip_levels;
               }
 
+              const auto& params = game->get_params();
               if (!score.killed.get()) {
                 // this score came from a bonus block
-                float annotation_x = to_window(score.block_x + game->get_grid_pitch() / 2, game->get_w());
-                float annotation_y = -to_window(score.block_y + game->get_grid_pitch() / 2, game->get_h());
+                float annotation_x = to_window(score.block_x + params.grid_pitch / 2, params.w);
+                float annotation_y = -to_window(score.block_y + params.grid_pitch / 2, params.h);
 
                 if (score.bonus != BlockSpecial::None) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
@@ -889,15 +913,15 @@ int main(int argc, char* argv[]) {
               } else if (score.killed.get() && (
                   (score.killed->has_flags(Monster::Flag::IsPlayer)) ||
                   (score.killed == score.monster))) {
-                float annotation_x = to_window(score.killed->x + game->get_grid_pitch() / 2, game->get_w());
-                float annotation_y = -to_window(score.killed->y + game->get_grid_pitch() / 2, game->get_h());
+                float annotation_x = to_window(score.killed->x + params.grid_pitch / 2, params.w);
+                float annotation_y = -to_window(score.killed->y + params.grid_pitch / 2, params.h);
                 annotations.emplace(new Annotation(annotation_x, annotation_y,
                     1, 0.5, 0, 2, 1, 0.007, "oh no!"));
               } else {
                 shared_ptr<Monster> position_monster = score.killed.get() ?
                     score.killed : score.monster;
-                float annotation_x = to_window(position_monster->x + game->get_grid_pitch() / 2, game->get_w());
-                float annotation_y = -to_window(position_monster->y + game->get_grid_pitch() / 2, game->get_h());
+                float annotation_x = to_window(position_monster->x + params.grid_pitch / 2, params.w);
+                float annotation_y = -to_window(position_monster->y + params.grid_pitch / 2, params.h);
                 if (score.lives) {
                   annotations.emplace(new Annotation(annotation_x, annotation_y,
                       0, 1, 0, 2, 1, 0.007, string_printf("%dUP", score.lives)));

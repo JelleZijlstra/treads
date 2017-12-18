@@ -89,8 +89,7 @@ void render_image(const Image& img, float x1, float x2, float y1, float y2,
       uint8_t r, g, b;
       img.read_pixel(x, y, &r, &g, &b);
 
-      // black is transparent I guess
-      if (!r && !g && !b) {
+      if ((r == 0xFF) && (g == 0xFF) && (b == 0xFF)) {
         continue;
       }
 
