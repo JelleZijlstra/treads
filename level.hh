@@ -275,7 +275,7 @@ private:
 
   int64_t frames_between_monsters;
 
-  int64_t score_for_monster(bool is_power_monster) const;
+  int64_t score_for_monster(bool is_power_monster, int64_t mult = 1) const;
   uint64_t flags_for_monster(bool is_power_monster) const;
 
   // checks if the given position is a multiple of the grid pitch

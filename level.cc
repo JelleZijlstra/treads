@@ -663,9 +663,9 @@ double LevelState::current_score_proportion() const {
   return 1.0 - (static_cast<double>(this->frames_executed) / static_cast<double>(score_end_frame));
 }
 
-int64_t LevelState::score_for_monster(bool is_power_monster) const {
+int64_t LevelState::score_for_monster(bool is_power_monster, int64_t mult) const {
   int64_t base = is_power_monster ? this->params.power_monster_score : this->params.basic_monster_score;
-  return this->current_score_proportion() * base;
+  return this->current_score_proportion() * (base * mult);
 }
 
 uint64_t LevelState::flags_for_monster(bool is_power_monster) const {
@@ -1104,7 +1104,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         other_monster->death_frame = this->frames_executed;
         ret.events_mask |= is_player ? Event::PlayerSquished : Event::MonsterSquished;
         ret.scores.emplace_back(block->owner, other_monster,
-            block->monsters_killed_this_push * this->score_for_monster(is_power));
+            this->score_for_monster(is_power, block->monsters_killed_this_push));
 
       } else {
         if (block->x_speed) {
