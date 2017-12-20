@@ -1030,7 +1030,6 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       block->x = 0;
       block->x_speed = -block->x_speed + block->bounce_speed_absorption * sgn(block->x_speed);
       collision = true;
-      ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
     }
     // (5.1.2) right edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
@@ -1038,7 +1037,6 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       block->x = this->params.w - this->params.grid_pitch;
       block->x_speed = -block->x_speed + block->bounce_speed_absorption * sgn(block->x_speed);
       collision = true;
-      ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
     }
     // (5.1.3) top edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
@@ -1046,7 +1044,6 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       block->y = 0;
       block->y_speed = -block->y_speed + block->bounce_speed_absorption * sgn(block->y_speed);
       collision = true;
-      ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
     }
     // (5.1.4) bottom edge
     if (this->check_moving_collision(block->x, block->y, block->x_speed,
@@ -1054,7 +1051,6 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       block->y = this->params.h - this->params.grid_pitch;
       block->y_speed = -block->y_speed + block->bounce_speed_absorption * sgn(block->y_speed);
       collision = true;
-      ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
     }
 
     // (5.2) check for collisions with other blocks (this will cause it to stop
@@ -1077,13 +1073,11 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
               !this->is_aligned(other_block->x);
           block->x = other_block->x - sgn(block->x_speed) * this->params.grid_pitch;
           block->x_speed = -block->x_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->x_speed);
-          ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
         } else {
           bool elastic_bounce = (other_block->has_flags(Block::Flag::Bouncy)) ||
               !this->is_aligned(other_block->y);
           block->y = other_block->y - sgn(block->y_speed) * this->params.grid_pitch;
           block->y_speed = -block->y_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->y_speed);
-          ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
         }
         collision = true;
       }
@@ -1117,12 +1111,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
           bool elastic_bounce = !this->is_aligned(other_monster->x);
           block->x = other_monster->x - sgn(block->x_speed) * this->params.grid_pitch;
           block->x_speed = -block->x_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->x_speed);
-          ret.events_mask |= block->x_speed ? Event::BlockBounced : Event::BlockStopped;
         } else {
           bool elastic_bounce = !this->is_aligned(other_monster->y);
           block->y = other_monster->y - sgn(block->y_speed) * this->params.grid_pitch;
           block->y_speed = -block->y_speed + (!elastic_bounce) * block->bounce_speed_absorption * sgn(block->y_speed);
-          ret.events_mask |= block->y_speed ? Event::BlockBounced : Event::BlockStopped;
         }
         collision = true;
       }
@@ -1140,6 +1132,12 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         this->is_aligned(block->x) && this->is_aligned(block->y) &&
         (!block->has_flags(Block::Flag::DelayedBomb) || ((block->x_speed == 0) && (block->y_speed == 0)))) {
       ret |= this->apply_explosion(block);
+
+    // (5.4.2) there was a collision, and the block didn't explode. play the
+    // appropriate sound for this
+    } else {
+      bool stopped = (block->x_speed == 0) && (block->y_speed == 0);
+      ret.events_mask |= stopped ? Event::BlockStopped : Event::BlockBounced;
     }
   }
 
