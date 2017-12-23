@@ -490,6 +490,16 @@ static double json_get_default_float(const shared_ptr<JSONObject>& json,
   }
 }
 
+static Monster::MovementPolicy json_get_default_MovementPolicy(
+    const shared_ptr<JSONObject>& json, const std::string& key,
+    Monster::MovementPolicy default_value) {
+  try {
+    return Monster::movement_policy_for_name(json->at(key)->as_string().c_str());
+  } catch (const JSONObject::key_error& e) {
+    return default_value;
+  }
+}
+
 static unordered_map<BlockSpecial, pair<int64_t, int64_t>> parse_special_counts_dict(
     const shared_ptr<JSONObject>& json) {
   unordered_map<BlockSpecial, pair<int64_t, int64_t>> result;
@@ -504,8 +514,6 @@ static unordered_map<BlockSpecial, pair<int64_t, int64_t>> parse_special_counts_
   }
   return result;
 }
-
-    std::unordered_map<BlockSpecial, std::pair<int64_t, int64_t>> special_type_to_count;
 
 
 static vector<LevelState::GenerationParameters> load_generation_params(
@@ -537,6 +545,10 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     }
     defaults.basic_monster_score = defaults_json->at("basic_monster_score")->as_int();
     defaults.power_monster_score = defaults_json->at("power_monster_score")->as_int();
+    defaults.basic_monster_movement_policy = Monster::movement_policy_for_name(
+        defaults_json->at("basic_monster_movement")->as_string().c_str());
+    defaults.power_monster_movement_policy = Monster::movement_policy_for_name(
+        defaults_json->at("power_monster_movement")->as_string().c_str());
     defaults.power_monsters_can_push = defaults_json->at("power_monsters_can_push")->as_bool();
     defaults.power_monsters_become_creators = defaults_json->at("power_monsters_become_creators")->as_bool();
     defaults.player_move_speed = defaults_json->at("player_move_speed")->as_int();
@@ -571,6 +583,8 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     params.power_monster_count.second = json_get_default_int(level_json, "power_monster_count_high", params.power_monster_count.second);
     params.basic_monster_score = json_get_default_int(level_json, "basic_monster_score", params.basic_monster_score);
     params.power_monster_score = json_get_default_int(level_json, "power_monster_score", params.power_monster_score);
+    params.basic_monster_movement_policy = json_get_default_MovementPolicy(level_json, "basic_monster_movement", params.basic_monster_movement_policy);
+    params.power_monster_movement_policy = json_get_default_MovementPolicy(level_json, "power_monster_movement", params.power_monster_movement_policy);
     params.player_move_speed = json_get_default_int(level_json, "player_move_speed", defaults.player_move_speed);
     params.basic_monster_move_speed = json_get_default_int(level_json, "basic_monster_move_speed", defaults.basic_monster_move_speed);
     params.power_monster_move_speed = json_get_default_int(level_json, "power_monster_move_speed", defaults.power_monster_move_speed);

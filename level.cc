@@ -21,6 +21,12 @@ static int64_t random_int(const pair<int64_t, int64_t>& bounds) {
   return random_int(bounds.first, bounds.second);
 }
 
+static int64_t dist2(int64_t x1, int64_t y1, int64_t x2, int64_t y2) {
+  int64_t x_delta = x1 - x2;
+  int64_t y_delta = y1 - y2;
+  return (x_delta * x_delta) + (y_delta * y_delta);
+}
+
 
 static int64_t sgn(int64_t x) {
     return (0 < x) - (x < 0);
@@ -238,13 +244,51 @@ const char* Monster::name_for_flag(int64_t f) {
   }
 }
 
+  enum class MovementPolicy {
+    Player = 0,
+    Straight, // keep going straight; turn when encounter an obstacle
+    Random, // move randomly, but don't turn around unless necessary
+    SeekPlayer, // use A* to find a path to the player (these are evil!)
+  };
+
+Monster::MovementPolicy Monster::movement_policy_for_name(const char* name) {
+  if (!strcmp(name, "Player")) {
+    return MovementPolicy::Player;
+  } else if (!strcmp(name, "Random")) {
+    return MovementPolicy::Random;
+  } else if (!strcmp(name, "Straight")) {
+    return MovementPolicy::Straight;
+  } else if (!strcmp(name, "SeekPlayer")) {
+    return MovementPolicy::SeekPlayer;
+  } else {
+    throw invalid_argument(string_printf("unknown movement policy name: %s", name));
+  }
+}
+
+const char* Monster::name_for_movement_policy(MovementPolicy policy) {
+  switch (policy) {
+    case MovementPolicy::Player:
+      return "Player";
+    case MovementPolicy::Random:
+      return "Random";
+    case MovementPolicy::Straight:
+      return "Straight";
+    case MovementPolicy::SeekPlayer:
+      return "SeekPlayer";
+    default:
+      return "<InvalidMovementPolicy>";
+  }
+}
+
 Monster::Monster(int64_t x, int64_t y, int64_t flags) :
     death_frame(-1), x(x), y(y), x_speed(0), y_speed(0), move_speed(4),
     push_speed(8), block_destroy_rate(0.02), integrity(0),
-    facing_direction(Impulse::Up), control_impulse(0), flags(flags) {
-  // players always have integroty = 1.0 so they can move at the level start
+    facing_direction(Impulse::Up), control_impulse(0), flags(flags),
+    movement_policy(MovementPolicy::Random) {
+  // players always have integrity = 1.0 so they can move at the level start
   if (this->has_flags(Flag::IsPlayer)) {
     this->integrity = 1.0;
+    this->movement_policy = MovementPolicy::Player;
   }
 }
 
@@ -299,6 +343,10 @@ void Monster::add_special(BlockSpecial special, int64_t frames) {
   this->special_to_frames_remaining[special] = frames;
 }
 
+bool Monster::is_alive() const {
+  return this->death_frame < 0;
+}
+
 void Monster::attenuate_and_delete_specials() {
   for (auto special_it = this->special_to_frames_remaining.begin();
        special_it != this->special_to_frames_remaining.end();) {
@@ -326,6 +374,36 @@ void Monster::attenuate_and_delete_specials() {
       special_it = this->special_to_frames_remaining.erase(special_it);
     } else {
       special_it++;
+    }
+  }
+}
+
+void Monster::choose_random_direction(uint8_t available_directions) {
+  // if there are no directions available, do nothing
+  if (available_directions == Impulse::None) {
+    return;
+  }
+
+  // if there's only one direction available, go that way
+  if ((available_directions & (available_directions - 1)) == 0) {
+    this->control_impulse = available_directions;
+    return;
+  }
+
+  // prepare for randomness
+  static random_device rd;
+  static mt19937 g(rd());
+
+  // if there are multiple directions available, forbid the direction that
+  // the monster just came from, then choose a direction at random
+  available_directions &= ~(opposite_direction(this->facing_direction));
+  Impulse direction_order[] = {Impulse::Left, Impulse::Right, Impulse::Up,
+      Impulse::Down};
+  shuffle(direction_order, direction_order + 4, g);
+  for (auto check_direction : direction_order) {
+    if (available_directions & check_direction) {
+      this->control_impulse = check_direction;
+      return;
     }
   }
 }
@@ -455,9 +533,13 @@ LevelState::LevelState(const GenerationParameters& params) : params(params),
     bool is_power_monster = (this->monsters.size() >= basic_monster_count + 1);
     auto& monster = *this->monsters.emplace(new Monster((*block_it)->x,
         (*block_it)->y, this->flags_for_monster(is_power_monster))).first;
+    monster->movement_policy = is_power_monster ?
+        this->params.power_monster_movement_policy :
+        this->params.basic_monster_movement_policy;
     monster->block_destroy_rate = params.block_destroy_rate;
-    monster->move_speed = is_power_monster ? params.power_monster_move_speed :
-        params.basic_monster_move_speed;
+    monster->move_speed = is_power_monster ?
+        this->params.power_monster_move_speed :
+        this->params.basic_monster_move_speed;
     monster->push_speed = params.push_speed;
     block_it = this->blocks.erase(block_it);
   }
@@ -636,7 +718,7 @@ int64_t LevelState::get_frames_between_monsters() const {
 int64_t LevelState::count_monsters_with_flags(uint64_t flags, uint64_t mask) const {
   int64_t count = 0;
   for (const auto& monster : this->monsters) {
-    if ((monster->death_frame >= 0) || ((monster->flags & mask) != flags)) {
+    if (!monster->is_alive() || ((monster->flags & mask) != flags)) {
       continue;
     }
     count++;
@@ -653,6 +735,109 @@ int64_t LevelState::count_blocks_with_special(BlockSpecial special) const {
     count++;
   }
   return count;
+}
+
+Impulse LevelState::find_path(int64_t x, int64_t y, int64_t target_x, int64_t target_y) const {
+  // TODO: we make the assumption here that coordinates are 32-bit encodable;
+  // this could be wrong in some strange universe
+  auto encode_cell_coords = +[](int64_t x, int64_t y) -> int64_t {
+    return ((x & 0xFFFFFFFF) << 32) | (y & 0xFFFFFFFF);
+  };
+  auto encode_cell_coords_pair = +[](const pair<int64_t, int64_t>& c) -> int64_t {
+    return ((c.first & 0xFFFFFFFF) << 32) | (c.second & 0xFFFFFFFF);
+  };
+  auto decode_cell_coords = +[](int64_t c) -> pair<int64_t, int64_t> {
+    return make_pair(((c >> 32) & 0xFFFFFFFF), (c & 0xFFFFFFFF));
+  };
+
+  int64_t start_cell = encode_cell_coords(x, y);
+  int64_t target_cell = encode_cell_coords(target_x, target_y);
+
+  unordered_set<int64_t> visited_cells;
+  unordered_set<int64_t> pending_cells;
+  pending_cells.emplace(start_cell);
+
+  // map of cell to direction back to start
+  unordered_map<int64_t, Impulse> reverse_path;
+
+  unordered_map<int64_t, int64_t> cell_score;
+  unordered_map<int64_t, int64_t> passthrough_score;
+  cell_score.emplace(start_cell, 0);
+  passthrough_score.emplace(start_cell, dist2(x, y, target_x, target_y));
+
+  while (!pending_cells.empty()) {
+    // TODO: this probably could be faster if we used a multimap<score, cell>
+    // for pending_cells
+    int64_t current_cell = 0xFFFFFFFFFFFFFFFF;
+    {
+      // TODO: this is ugly; don't use a constant
+      int64_t min_score = 0x7FFFFFFFFFFFFFFF;
+      for (const auto& c : pending_cells) {
+        int64_t cell_score = 0x7FFFFFFFFFFFFFFE;
+        auto passthrough_score_it = passthrough_score.find(c);
+        if (passthrough_score_it != passthrough_score.end()) {
+          cell_score = passthrough_score_it->second;
+        }
+
+        if (cell_score < min_score) {
+          current_cell = c;
+          min_score = cell_score;
+        }
+      }
+    }
+
+    auto current_cell_pair = decode_cell_coords(current_cell);
+    if (current_cell == target_cell) {
+      Impulse ret = Impulse::None;
+      try {
+        for (;;) {
+          ret = reverse_path.at(current_cell);
+          auto offsets = offsets_for_direction(ret);
+          current_cell_pair.first -= offsets.first * this->params.grid_pitch;
+          current_cell_pair.second -= offsets.second * this->params.grid_pitch;
+          current_cell = encode_cell_coords_pair(current_cell_pair);
+        }
+      } catch (const out_of_range&) { }
+      return ret;
+    }
+
+    pending_cells.erase(current_cell);
+    visited_cells.emplace(current_cell);
+
+    for (Impulse dir : all_directions) {
+      auto offsets = offsets_for_direction(dir);
+      pair<int64_t, int64_t> next_cell_pair = make_pair(
+          current_cell_pair.first + this->params.grid_pitch * offsets.first,
+          current_cell_pair.second + this->params.grid_pitch * offsets.second);
+      int64_t next_cell = encode_cell_coords_pair(next_cell_pair);
+
+      if (!this->is_within_bounds(next_cell_pair.first, next_cell_pair.second)) {
+        continue;
+      }
+      if (!this->space_is_empty(next_cell_pair.first, next_cell_pair.second)) {
+        continue;
+      }
+      if (visited_cells.count(next_cell)) {
+        continue;
+      }
+      pending_cells.emplace(next_cell);
+
+      int64_t tentative_cell_score = cell_score.at(current_cell) + 1;
+      auto cell_score_it = cell_score.find(next_cell);
+      if ((cell_score_it != cell_score.end()) &&
+          (cell_score_it->second < tentative_cell_score)) {
+        continue;
+      }
+
+      reverse_path[next_cell] = dir;
+      cell_score[next_cell] = tentative_cell_score;
+      passthrough_score[next_cell] = tentative_cell_score + dist2(
+          next_cell_pair.first, next_cell_pair.second, target_x, target_y);
+    }
+  }
+
+  // no path exists
+  return Impulse::None;
 }
 
 double LevelState::current_score_proportion() const {
@@ -674,8 +859,15 @@ uint64_t LevelState::flags_for_monster(bool is_power_monster) const {
       ((is_power_monster && this->params.power_monsters_can_push) ? Monster::Flag::CanPushBlocks : 0);
 }
 
-bool LevelState::is_aligned(int64_t pos) const {
-  return (pos % this->params.grid_pitch) == 0;
+bool LevelState::is_aligned(int64_t z) const {
+  return (z % this->params.grid_pitch) == 0;
+}
+
+int64_t LevelState::align(int64_t z) const {
+  int64_t half_pitch = this->params.grid_pitch >> 1;
+  int64_t misalignment = z % this->params.grid_pitch;
+  return z + ((misalignment >= half_pitch) ? this->params.grid_pitch : 0) -
+      misalignment;
 }
 
 bool LevelState::is_within_bounds(int64_t x, int64_t y) const {
@@ -800,10 +992,6 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
   // used to be before executing this frame, since everything that depends on
   // alignment (especially step 2) happens before any motion is applied.
 
-  // prepare for randomness
-  static random_device rd;
-  static mt19937 g(rd());
-
   // collect events that occurred during this frame (this is used for playing
   // sounds)
   FrameEvents ret;
@@ -817,15 +1005,10 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
   }
 
-  // (step 1) the player's control impulse is given by the caller
-  if (this->player) {
-    this->player->control_impulse = impulses;
-  }
-
   // (step 1) monsters update their impulses if their integrity is 1.0. if it's
   // not 1.0, their integrity increases a little
   for (auto& monster : this->monsters) {
-    if (monster->death_frame >= 0) {
+    if (!monster->is_alive()) {
       continue; // dead monsters tell no tales
     }
     if (monster->integrity < 1) {
@@ -836,59 +1019,82 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
       continue; // this monster is held by a time stop
     }
 
-    bool is_player = monster->has_flags(Monster::Flag::IsPlayer);
-    if (is_player) {
-      monster->control_impulse = impulses;
-    } else {
-      // if the monster isn't aligned, don't bother - it can't move anyway
-      if (!this->is_aligned(monster->x) || !this->is_aligned(monster->y)) {
-        continue;
-      }
+    // if the monster isn't a player and isn't aligned, don't bother - it can't
+    // move anyway
+    if (!monster->has_flags(Monster::Flag::IsPlayer) &&
+        (!this->is_aligned(monster->x) || !this->is_aligned(monster->y))) {
+      continue;
+    }
 
-      // figure out in which directions the monster can move
-      uint8_t available_directions = Impulse::None;
-      if (this->space_is_empty(monster->x - this->params.grid_pitch, monster->y)) {
-        available_directions |= Impulse::Left;
-      }
-      if (this->space_is_empty(monster->x + this->params.grid_pitch, monster->y)) {
-        available_directions |= Impulse::Right;
-      }
-      if (this->space_is_empty(monster->x, monster->y - this->params.grid_pitch)) {
-        available_directions |= Impulse::Up;
-      }
-      if (this->space_is_empty(monster->x, monster->y + this->params.grid_pitch)) {
-        available_directions |= Impulse::Down;
-      }
+    switch (monster->movement_policy) {
+      case Monster::MovementPolicy::Player:
+        monster->control_impulse = impulses;
+        break;
 
-      // if there are no directions available, do nothing
-      if (available_directions == Impulse::None) {
-        continue;
-      }
+      case Monster::MovementPolicy::SeekPlayer: {
+        // find the nearest player
+        int64_t min_dist = dist2(0, 0, this->params.grid_pitch * this->params.w,
+            this->params.grid_pitch * this->params.h);
+        shared_ptr<const Monster> nearest_player;
+        for (const auto& other_monster : this->monsters) {
+          if (!other_monster->has_flags(Monster::Flag::IsPlayer) ||
+              !other_monster->is_alive()) {
+            continue;
+          }
+          int64_t dist = dist2(monster->x, monster->y, other_monster->x, other_monster->y);
+          if (dist < min_dist) {
+            min_dist = dist;
+            nearest_player = other_monster;
+          }
+        }
 
-      // if there's only one direction available, go that way
-      if ((available_directions & (available_directions - 1)) == 0) {
-        monster->control_impulse = available_directions;
-
-      } else {
-        // if there are multiple directions available, forbid the direction that
-        // the monster just came from, then choose a direction at random
-        available_directions &= ~(opposite_direction(monster->facing_direction));
-        Impulse direction_order[] = {Impulse::Left, Impulse::Right, Impulse::Up,
-            Impulse::Down};
-        shuffle(direction_order, direction_order + 4, g);
-        for (auto check_direction : direction_order) {
-          if (available_directions & check_direction) {
-            monster->control_impulse = check_direction;
+        if (nearest_player.get()) {
+          int64_t target_x = this->align(nearest_player->x);
+          int64_t target_y = this->align(nearest_player->y);
+          Impulse path_impulse = this->find_path(monster->x, monster->y,
+              target_x, target_y);
+          if (path_impulse != Impulse::None) {
+            monster->control_impulse = path_impulse;
             break;
           }
         }
+
+        // if there's no player (what?!) or no path to the player, then use the
+        // Random strategy
+        goto Monster__MovementPolicy__Random;
+      }
+
+      case Monster::MovementPolicy::Straight: {
+        // if the monster can move forward, continue to do so
+        auto offsets = offsets_for_direction(monster->facing_direction);
+        if (this->space_is_empty(monster->x + this->params.grid_pitch * offsets.first,
+            monster->y + this->params.grid_pitch * offsets.second)) {
+          monster->control_impulse = monster->facing_direction;
+          break;
+        }
+        // else, fall through to the Random algorithm
+      }
+
+      Monster__MovementPolicy__Random:
+      case Monster::MovementPolicy::Random: {
+        // figure out which directions the monster can move
+        uint8_t available_directions = Impulse::None;
+        for (Impulse dir : all_directions) {
+          auto offsets = offsets_for_direction(dir);
+          if (this->space_is_empty(monster->x + this->params.grid_pitch * offsets.first,
+              monster->y + this->params.grid_pitch * offsets.second)) {
+            available_directions |= dir;
+          }
+        }
+        monster->choose_random_direction(available_directions);
+        break;
       }
     }
 
     // make the monster face in the impulse direction and update its speed if
     // it's aligned
     bool apply_impulse = false;
-    if (is_player) {
+    if (monster->has_flags(Monster::Flag::IsPlayer)) {
       // unlike monsters, players can turn around mid-cell
       Impulse new_direction = collapse_direction(monster->control_impulse);
       if (((new_direction == Impulse::Left) || (new_direction == Impulse::Right)) &&
@@ -931,7 +1137,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
 
   // (step 2) apply push impulses appropriately
   for (auto& monster : this->monsters) {
-    if (monster->death_frame >= 0) {
+    if (!monster->is_alive()) {
       continue; // dead monsters tell no tales
     }
     if (!time_stop_holders.empty() && !time_stop_holders.count(monster)) {
@@ -1086,7 +1292,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     // (5.3) check for collisions with monsters (this will cause the block to
     // stop, bounce, or kill)
     for (auto& other_monster : this->monsters) {
-      if (other_monster->death_frame >= 0) {
+      if (!other_monster->is_alive()) {
         continue; // dead monsters tell no tales
       }
 
@@ -1145,7 +1351,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
   // collide with blocks they stop, if they collide with other monsters they may
   // stop, die, kill, or continue depending on their flags.
   for (auto& monster : this->monsters) {
-    if (monster->death_frame >= 0) {
+    if (!monster->is_alive()) {
       continue; // dead monsters tell no tales
     }
 
@@ -1259,7 +1465,7 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     bool is_player = monster->has_flags(Monster::Flag::IsPlayer);
     shared_ptr<Monster> killer;
     for (auto& other_monster : this->monsters) {
-      if (other_monster->death_frame >= 0) {
+      if (!other_monster->is_alive()) {
         continue; // dead monsters tell no tales
       }
 
@@ -1362,6 +1568,9 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         bool is_power_monster = false; // TODO: should randomly choose
         auto& monster = *this->monsters.emplace(new Monster(
             target_x, target_y, this->flags_for_monster(is_power_monster))).first;
+        monster->movement_policy = is_power_monster ?
+            this->params.power_monster_movement_policy :
+            this->params.basic_monster_movement_policy;
         monster->facing_direction = candidate_directions[which];
         monster->block_destroy_rate = this->params.block_destroy_rate;
         monster->move_speed = is_power_monster ? this->params.power_monster_move_speed : this->params.basic_monster_move_speed;
@@ -1519,7 +1728,7 @@ LevelState::FrameEvents LevelState::apply_explosion(shared_ptr<Block> block) {
       // note that we don't check for monsters if there was a block, since
       // monsters and blocks can't occupy the same space
       for (auto& monster : this->monsters) {
-        if (monster->death_frame >= 0) {
+        if (!monster->is_alive()) {
           continue;
         }
         if (!this->check_stationary_collision(target_x, target_y, monster->x,

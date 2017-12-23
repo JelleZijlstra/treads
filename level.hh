@@ -81,7 +81,18 @@ struct Monster {
     KillsMonsters    = 0x0100, // kills monsters on contact
     Invincible       = 0x0200, // cannot be killed for any reason
   };
+
   static const char* name_for_flag(int64_t f);
+
+  enum class MovementPolicy {
+    Player = 0,
+    Straight, // keep going straight; turn when encounter an obstacle
+    Random, // move randomly, but don't turn around unless necessary
+    SeekPlayer, // use A* to find a path to the player
+  };
+
+  static MovementPolicy movement_policy_for_name(const char* name);
+  static const char* name_for_movement_policy(MovementPolicy special);
 
   int64_t death_frame;
 
@@ -107,6 +118,7 @@ struct Monster {
   int64_t control_impulse;
 
   int64_t flags;
+  MovementPolicy movement_policy;
 
   Monster() = delete;
   Monster(int64_t x, int64_t y, int64_t flags);
@@ -115,7 +127,9 @@ struct Monster {
 
   bool has_special(BlockSpecial special) const;
   void add_special(BlockSpecial special, int64_t frames);
+  bool is_alive() const;
   void attenuate_and_delete_specials();
+  void choose_random_direction(uint8_t available_directions);
 
   bool has_flags(uint64_t flags) const;
   bool has_any_flags(uint64_t flags) const;
@@ -201,6 +215,9 @@ public:
     int64_t basic_monster_score;
     int64_t power_monster_score;
 
+    Monster::MovementPolicy basic_monster_movement_policy;
+    Monster::MovementPolicy power_monster_movement_policy;
+
     bool power_monsters_can_push;
     bool power_monsters_become_creators;
 
@@ -231,6 +248,8 @@ public:
 
   int64_t count_monsters_with_flags(uint64_t flags, uint64_t mask) const;
   int64_t count_blocks_with_special(BlockSpecial special) const;
+
+  Impulse find_path(int64_t x, int64_t y, int64_t target_x, int64_t target_y) const;
 
   // executes a single update to the level state
   struct FrameEvents {
@@ -279,7 +298,9 @@ private:
   uint64_t flags_for_monster(bool is_power_monster) const;
 
   // checks if the given position is a multiple of the grid pitch
-  bool is_aligned(int64_t pos) const;
+  bool is_aligned(int64_t z) const;
+  // aligns a gicen position to the closest grid cell
+  int64_t align(int64_t z) const;
   // checks if the given position is within the level
   bool is_within_bounds(int64_t x, int64_t y) const;
 
