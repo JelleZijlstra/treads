@@ -1,0 +1,14 @@
+Treads is an arcade-style game based on the ideas and mechanics of Greebles,
+which is now abandonware.
+
+
+Your goal in each level is to destroy the enemy tanks, usually by squishing them
+with blocks. But watch out - the enemies will kill you on contact, and the
+blocks bounce and can squish you too!
+
+
+Building from source:
+- Install Xcode (or some other variant of GCC).
+- Install GLFW (http://www.glfw.org/).
+- Run `make`. This will create Treads.app.
+- Run treads.app. Play the game. Be impressed with the graphics and sound.
