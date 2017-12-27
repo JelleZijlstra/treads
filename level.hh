@@ -198,6 +198,8 @@ struct Explosion {
 class LevelState {
 public:
   struct GenerationParameters {
+    std::string name;
+
     int64_t grid_pitch;
     int64_t w; // must be a multiple if grid_pitch
     int64_t h; // must be a multiple if grid_pitch

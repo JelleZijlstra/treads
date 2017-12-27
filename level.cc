@@ -1520,8 +1520,28 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     // location, so we shouldn't move it incrementally. but don't move it if
     // it's caught in a time stop.
     if (!collision && (time_stop_holders.empty() || time_stop_holders.count(monster))) {
+      // a bug can occur if the monster is following a slow-moving block: they
+      // can get stuck in a misaligned trajectory until they hit a wall. to fix
+      // this, we snap the monster to an aligned location if it crosses an
+      // alignment boundary.
+      int64_t x_cell = monster->x / this->params.grid_pitch;
+      int64_t y_cell = monster->y / this->params.grid_pitch;
       monster->x += monster->x_speed;
       monster->y += monster->y_speed;
+      if (x_cell != monster->x / this->params.grid_pitch) {
+        if (monster->x_speed > 0) {
+          monster->x = (x_cell + 1) * this->params.grid_pitch;
+        } else {
+          monster->x = x_cell * this->params.grid_pitch + monster->x_speed;
+        }
+      }
+      if (y_cell != monster->y / this->params.grid_pitch) {
+        if (monster->y_speed > 0) {
+          monster->y = (y_cell + 1) * this->params.grid_pitch;
+        } else {
+          monster->y = y_cell * this->params.grid_pitch + monster->y_speed;
+        }
+      }
     }
   }
 

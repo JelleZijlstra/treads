@@ -371,22 +371,31 @@ static void render_and_delete_annotations(int window_w, int window_h,
 
 
 
-static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
-    int window_h, unordered_set<unique_ptr<Annotation>>& annotations,
-    int64_t player_lives, int64_t player_score, int64_t player_skip_levels,
-    int64_t level_index, int64_t frames_until_next_level, Phase phase) {
+static void render_game_screen(
+    const vector<LevelState::GenerationParameters>& generation_params,
+    shared_ptr<const LevelState> game, int window_w, int window_h,
+    unordered_set<unique_ptr<Annotation>>& annotations, int64_t player_lives,
+    int64_t player_score, int64_t player_skip_levels, int64_t level_index,
+    int64_t frames_until_next_level, Phase phase) {
   render_level_state(game, level_index, player_lives, player_score,
       player_skip_levels, window_w, window_h);
   render_and_delete_annotations(window_w, window_h, annotations);
 
+  float aspect_ratio = (float)window_w / window_h;
   if (frames_until_next_level) {
     render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.5f,
         0.0f, 0.0f, 0.0f, 0.1f);
     if (phase == Phase::Playing) {
-      draw_text(0, 0.7, 1, 1, 1, 1, (float)window_w / window_h, 0.025, true,
+      int64_t next_level = level_index + 1 + player_skip_levels;
+      if (next_level >= generation_params.size()) {
+        level_index = 0; // TODO: this should probably be size/2 or something
+      }
+      draw_text(0, 0.7, 1, 1, 1, 1, aspect_ratio, 0.025, true,
           "LEVEL %" PRId64 " COMPLETE", level_index);
-      draw_text(0, 0.4, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
-          "Get ready for level %" PRId64, level_index + 1 + player_skip_levels);
+      draw_text(0, 0.4, 1, 1, 1, 1, aspect_ratio, 0.015, true,
+          "LEVEL %" PRId64 " NEXT", next_level);
+      draw_text(0, 0.25, 1, 1, 1, 1, aspect_ratio, 0.01, true, "%s",
+          generation_params[next_level].name.c_str());
     }
 
     glBegin(GL_QUADS);
@@ -399,24 +408,24 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
     if (player_lives == 0) {
       render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.8f,
           1.0f, 0.0f, 0.0f, 0.1f);
-      draw_text(0, 0.7, 1, 0, 0, 1, (float)window_w / window_h, 0.03, true,
+      draw_text(0, 0.7, 1, 0, 0, 1, aspect_ratio, 0.03, true,
           "GAME OVER");
-      draw_text(0, 0.2, 1, 1, 1, 1, (float)window_w / window_h, 0.015, true,
+      draw_text(0, 0.2, 1, 1, 1, 1, aspect_ratio, 0.015, true,
           "YOUR SCORE IS %" PRId64, player_score);
-      draw_text(0, 0.0, 1, 1, 1, 1, (float)window_w / window_h, 0.01, true,
+      draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.01, true,
           "Press Enter to start over...");
     } else {
       render_stripe_animation(window_w, window_h, 100, 0.1f, 0.0f, 0.0f, 0.5f,
           1.0f, 0.0f, 0.0f, 0.1f);
       if (level_index != 0) {
-        draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+        draw_text(0, 0.6, 1, 0, 0, 1, aspect_ratio, 0.01, true,
             "You have %" PRId64 " %s remaining", player_lives,
             (player_lives == 1) ? "life" : "lives");
       } else {
-        draw_text(0, 0.6, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+        draw_text(0, 0.6, 1, 0, 0, 1, aspect_ratio, 0.01, true,
             "You have unlimited lives on level 0");
       }
-      draw_text(0, 0.2, 1, 0, 0, 1, (float)window_w / window_h, 0.01, true,
+      draw_text(0, 0.2, 1, 0, 0, 1, aspect_ratio, 0.01, true,
           "Press Enter to try again...");
     }
   }
@@ -425,7 +434,7 @@ static void render_game_screen(shared_ptr<const LevelState> game, int window_w,
 
 
 static void render_paused_overlay(int window_w, int window_h, int level_index,
-    uint64_t frames_executed, bool should_play_sounds) {
+    const char* level_name, uint64_t frames_executed, bool should_play_sounds) {
   render_stripe_animation(window_w, window_h, 100, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f,
       0.0f, 0.0f, 0.1f);
 
@@ -433,8 +442,9 @@ static void render_paused_overlay(int window_w, int window_h, int level_index,
   draw_text(0, 0.7, 1, 1, 1, 1, aspect_ratio, 0.03, true,
       "TREADS");
 
-  draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.02, true, "LEVEL %d",
+  draw_text(0, 0.3, 1, 1, 1, 1, aspect_ratio, 0.015, true, "LEVEL %" PRId64,
       level_index);
+  draw_text(0, 0.15, 1, 1, 1, 1, aspect_ratio, 0.01, true, "%s", level_name);
 
   draw_text(0, 0.0, 1, 1, 1, 1, aspect_ratio, 0.007, true, "PRESS ENTER");
 
@@ -463,10 +473,30 @@ uint64_t current_impulse = None;
 
 
 
+static pair<int64_t, int64_t> parse_high_low(
+    const shared_ptr<JSONObject>& json) {
+  if (json->is_list()) {
+    return make_pair(json->at(0)->as_int(), json->at(1)->as_int());
+  } else {
+    int64_t count = json->as_int();
+    return make_pair(count, count);
+  }
+}
+
 static int64_t json_get_default_int(const shared_ptr<JSONObject>& json,
     const std::string& key, int64_t default_value) {
   try {
     return json->at(key)->as_int();
+  } catch (const JSONObject::key_error& e) {
+    return default_value;
+  }
+}
+
+static pair<int64_t, int64_t> json_get_default_int_pair(
+    const shared_ptr<JSONObject>& json, const std::string& key,
+    const pair<int64_t, int64_t>& default_value) {
+  try {
+    return parse_high_low(json->at(key));
   } catch (const JSONObject::key_error& e) {
     return default_value;
   }
@@ -504,17 +534,10 @@ static unordered_map<BlockSpecial, pair<int64_t, int64_t>> parse_special_counts_
     const shared_ptr<JSONObject>& json) {
   unordered_map<BlockSpecial, pair<int64_t, int64_t>> result;
   for (const auto& it : json->as_dict()) {
-    BlockSpecial special = special_for_name(it.first.c_str());
-    if (it.second->is_list()) {
-      result.emplace(special, make_pair(it.second->at(0)->as_int(), it.second->at(1)->as_int()));
-    } else {
-      int64_t count = it.second->as_int();
-      result.emplace(special, make_pair(count, count));
-    }
+    result.emplace(special_for_name(it.first.c_str()), parse_high_low(it.second));
   }
   return result;
 }
-
 
 static vector<LevelState::GenerationParameters> load_generation_params(
     const string& filename) {
@@ -529,20 +552,8 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     defaults.player_x = defaults_json->at("player_x")->as_int();
     defaults.player_y = defaults_json->at("player_y")->as_int();
     defaults.player_squishable = defaults_json->at("player_squishable")->as_bool();
-    try {
-      defaults.basic_monster_count.first = defaults_json->at("basic_monster_count_low")->as_int();
-      defaults.basic_monster_count.second = defaults_json->at("basic_monster_count_high")->as_int();
-    } catch (const JSONObject::key_error& e) {
-      defaults.basic_monster_count.first = defaults_json->at("basic_monster_count")->as_int();
-      defaults.basic_monster_count.second = defaults.basic_monster_count.first;
-    }
-    try {
-      defaults.power_monster_count.first = defaults_json->at("power_monster_count_low")->as_int();
-      defaults.power_monster_count.second = defaults_json->at("power_monster_count_high")->as_int();
-    } catch (const JSONObject::key_error& e) {
-      defaults.power_monster_count.first = defaults_json->at("power_monster_count")->as_int();
-      defaults.power_monster_count.second = defaults.power_monster_count.first;
-    }
+    defaults.basic_monster_count = parse_high_low(defaults_json->at("basic_monster_count"));
+    defaults.power_monster_count = parse_high_low(defaults_json->at("power_monster_count"));
     defaults.basic_monster_score = defaults_json->at("basic_monster_score")->as_int();
     defaults.power_monster_score = defaults_json->at("power_monster_score")->as_int();
     defaults.basic_monster_movement_policy = Monster::movement_policy_for_name(
@@ -568,19 +579,16 @@ static vector<LevelState::GenerationParameters> load_generation_params(
     all_params.emplace_back();
     auto& params = all_params.back();
 
+    try {
+      params.name = level_json->at("name")->as_string();
+    } catch (const out_of_range&) { }
     params.grid_pitch = json_get_default_int(level_json, "grid_pitch", defaults.grid_pitch);
     params.w = json_get_default_int(level_json, "width", defaults.w);
     params.h = json_get_default_int(level_json, "height", defaults.h);
     params.player_x = json_get_default_int(level_json, "player_x", defaults.player_x);
     params.player_y = json_get_default_int(level_json, "player_y", defaults.player_y);
-    params.basic_monster_count.first = json_get_default_int(level_json, "basic_monster_count", defaults.basic_monster_count.first);
-    params.basic_monster_count.second = json_get_default_int(level_json, "basic_monster_count", defaults.basic_monster_count.second);
-    params.basic_monster_count.first = json_get_default_int(level_json, "basic_monster_count_low", defaults.basic_monster_count.first);
-    params.basic_monster_count.second = json_get_default_int(level_json, "basic_monster_count_high", defaults.basic_monster_count.second);
-    params.power_monster_count.first = json_get_default_int(level_json, "power_monster_count", defaults.power_monster_count.first);
-    params.power_monster_count.second = json_get_default_int(level_json, "power_monster_count", defaults.power_monster_count.second);
-    params.power_monster_count.first = json_get_default_int(level_json, "power_monster_count_low", defaults.power_monster_count.first);
-    params.power_monster_count.second = json_get_default_int(level_json, "power_monster_count_high", defaults.power_monster_count.second);
+    params.basic_monster_count = json_get_default_int_pair(level_json, "basic_monster_count", defaults.basic_monster_count);
+    params.power_monster_count = json_get_default_int_pair(level_json, "power_monster_count", defaults.power_monster_count);
     params.basic_monster_score = json_get_default_int(level_json, "basic_monster_score", defaults.basic_monster_score);
     params.power_monster_score = json_get_default_int(level_json, "power_monster_score", defaults.power_monster_score);
     params.basic_monster_movement_policy = json_get_default_MovementPolicy(level_json, "basic_monster_movement", defaults.basic_monster_movement_policy);
@@ -636,7 +644,11 @@ static void glfw_key_cb(GLFWwindow* window, int key, int scancode,
       should_play_sounds = !should_play_sounds;
 
     } else if (key == GLFW_KEY_ESCAPE) {
-      glfwSetWindowShouldClose(window, 1);
+      if (phase == Phase::Paused) {
+        glfwSetWindowShouldClose(window, 1);
+      } else {
+        phase = Phase::Paused;
+      }
 
     } else if (key == GLFW_KEY_ENTER) {
       if (phase == Phase::Playing) {
@@ -972,12 +984,13 @@ int main(int argc, char* argv[]) {
         last_update_time = now_time;
       }
 
-      render_game_screen(game, window_w, window_h, annotations, player_lives,
-          player_score, player_skip_levels, level_index,
-          frames_until_next_level, phase);
+      render_game_screen(generation_params, game, window_w, window_h,
+          annotations, player_lives, player_score, player_skip_levels,
+          level_index, frames_until_next_level, phase);
 
       if (phase == Phase::Paused) {
         render_paused_overlay(window_w, window_h, level_index,
+            generation_params[level_index].name.c_str(),
             game->get_frames_executed(), should_play_sounds);
       }
     }
