@@ -39,14 +39,17 @@ enum Event {
 };
 
 enum class BlockSpecial {
+  // these don't do anything special when destroyed
   None = 0,
+  Timer,
+  LineUp,
 
   // these are converted to ScoreInfos when destroyed
   Points,
   ExtraLife,
   SkipLevels,
 
-  // these are converted to Flags
+  // these are converted to Flags on creation
   Indestructible,
   IndestructibleAndImmovable,
   Immovable,
@@ -62,6 +65,7 @@ enum class BlockSpecial {
   TimeStop,
   ThrowBombs,
   KillsMonsters,
+  Everything,
 };
 
 BlockSpecial special_for_name(const char* name);
@@ -167,13 +171,15 @@ struct Block {
 
   BlockSpecial special;
   int64_t flags;
-  int64_t frames_until_next_monster;
+  int64_t frames_until_action;
 
   Block() = delete;
   Block(int64_t x, int64_t y, BlockSpecial special = BlockSpecial::None,
       int64_t flags = Flag::Pushable | Flag::Destructible | Flag::KillsPlayers | Flag::KillsMonsters);
 
   std::string str() const;
+
+  void set_special(BlockSpecial special, int64_t timer_value);
 
   bool has_flags(uint64_t flags) const;
   bool has_any_flags(uint64_t flags) const;

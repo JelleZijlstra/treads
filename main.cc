@@ -90,7 +90,7 @@ static void render_block(shared_ptr<const LevelState> game,
   const auto* block_ptr = block.get();
 
   if (block->special == BlockSpecial::CreatesMonsters) {
-    float non_red_channels = static_cast<float>(block->frames_until_next_monster)
+    float non_red_channels = static_cast<float>(block->frames_until_action)
         / game->get_frames_between_monsters();
     glColor4f(1.0, non_red_channels, non_red_channels, block->integrity);
   } else {
@@ -236,7 +236,8 @@ static void render_monster(shared_ptr<const LevelState> game,
   // if the monster has powerups, draw the bars half a cell above the monster.
   // but if it's in the top row, draw below instead
   bool below = (monster->y < params.grid_pitch);
-  float bar_y = below ? (y2 + 3 * (y2 - y1) / 8) : (y1 - (y2 - y1) / 2);
+  float bar_y = (below ? (y2 + (y2 - y1) / 2) : (y1 - (y2 - y1) / 2)) -
+      (monster->special_to_frames_remaining.size() * (y2 - y1) / 16);
   float bar_center = (x1 + x2) / 2;
   for (const auto& it : monster->special_to_frames_remaining) {
     float bottom_y = bar_y + (y2 - y1) / 8;
@@ -262,7 +263,7 @@ static void render_monster(shared_ptr<const LevelState> game,
     }
     aligned_rect(bar_center - bar_halfwidth, bar_center + bar_halfwidth,
         bar_y, bottom_y);
-    bar_y = below ? (bar_y - (y2 - y1) / 8) : bar_y + (y2 - y1) / 8;
+    bar_y += (y2 - y1) / 8;
   }
 }
 
@@ -786,6 +787,8 @@ int main(int argc, char* argv[]) {
   media_directory = "media";
 #endif
 
+  add_block_special_image(BlockSpecial::Timer, media_directory + "/special_timer.bmp");
+  add_block_special_image(BlockSpecial::LineUp, media_directory + "/special_line_up.bmp");
   add_block_special_image(BlockSpecial::Points, media_directory + "/special_points.bmp");
   add_block_special_image(BlockSpecial::ExtraLife, media_directory + "/special_extra_life.bmp");
   add_block_special_image(BlockSpecial::SkipLevels, media_directory + "/special_skip_levels.bmp");
@@ -802,6 +805,7 @@ int main(int argc, char* argv[]) {
   add_block_special_image(BlockSpecial::TimeStop, media_directory + "/special_time_stop.bmp");
   add_block_special_image(BlockSpecial::ThrowBombs, media_directory + "/special_throw_bombs.bmp");
   add_block_special_image(BlockSpecial::KillsMonsters, media_directory + "/special_kills_monsters.bmp");
+  add_block_special_image(BlockSpecial::Everything, media_directory + "/special_everything.bmp");
 
   init_al();
   unordered_map<Event, unique_ptr<SampledSound>> event_to_sound;

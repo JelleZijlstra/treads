@@ -85,7 +85,11 @@ pair<int64_t, int64_t> offsets_for_direction(Impulse direction) {
 }
 
 BlockSpecial special_for_name(const char* name) {
-  if (!strcmp(name, "Points")) {
+  if (!strcmp(name, "Timer")) {
+    return BlockSpecial::Timer;
+  } else if (!strcmp(name, "LineUp")) {
+    return BlockSpecial::LineUp;
+  } else if (!strcmp(name, "Points")) {
     return BlockSpecial::Points;
   } else if (!strcmp(name, "ExtraLife")) {
     return BlockSpecial::ExtraLife;
@@ -117,6 +121,8 @@ BlockSpecial special_for_name(const char* name) {
     return BlockSpecial::ThrowBombs;
   } else if (!strcmp(name, "KillsMonsters")) {
     return BlockSpecial::KillsMonsters;
+  } else if (!strcmp(name, "Everything")) {
+    return BlockSpecial::Everything;
   } else {
     throw invalid_argument(string_printf("unknown block special name: %s", name));
   }
@@ -124,6 +130,10 @@ BlockSpecial special_for_name(const char* name) {
 
 const char* name_for_special(BlockSpecial special) {
   switch (special) {
+    case BlockSpecial::Timer:
+      return "Timer";
+    case BlockSpecial::LineUp:
+      return "LineUp";
     case BlockSpecial::Points:
       return "Points";
     case BlockSpecial::ExtraLife:
@@ -156,6 +166,8 @@ const char* name_for_special(BlockSpecial special) {
       return "ThrowBombs";
     case BlockSpecial::KillsMonsters:
       return "KillsMonsters";
+    case BlockSpecial::Everything:
+      return "Everything";
     default:
       throw invalid_argument("unknown block special type");
   }
@@ -163,6 +175,10 @@ const char* name_for_special(BlockSpecial special) {
 
 const char* display_name_for_special(BlockSpecial special) {
   switch (special) {
+    case BlockSpecial::Timer:
+      return "Timer";
+    case BlockSpecial::LineUp:
+      return "Line Up";
     case BlockSpecial::Points:
       return "Points";
     case BlockSpecial::ExtraLife:
@@ -195,6 +211,8 @@ const char* display_name_for_special(BlockSpecial special) {
       return "Bombs";
     case BlockSpecial::KillsMonsters:
       return "Rampage";
+    case BlockSpecial::Everything:
+      return "Everything";
     default:
       throw invalid_argument("unknown block special type");
   }
@@ -453,7 +471,7 @@ Block::Block(int64_t x, int64_t y, BlockSpecial special, int64_t flags) :
     x(x), y(y), x_speed(0), y_speed(0), owner(NULL),
     monsters_killed_this_push(0), bounce_speed_absorption(2), bomb_speed(16),
     decay_rate(0.0), integrity(1.0), special(special), flags(flags),
-    frames_until_next_monster(0) { }
+    frames_until_action(0) { }
 
 string Block::str() const {
   string flags_str = name_for_flags(this->flags, this->name_for_flag);
@@ -462,6 +480,57 @@ string Block::str() const {
       " flags=%s>", this->x, this->y, this->x_speed, this->y_speed,
       this->decay_rate, this->integrity, static_cast<int64_t>(this->special),
       flags_str.c_str());
+}
+
+void Block::set_special(BlockSpecial special, int64_t timer_value) {
+  this->special = special;
+  switch (this->special) {
+    case BlockSpecial::None:
+    case BlockSpecial::LineUp:
+    case BlockSpecial::Points:
+    case BlockSpecial::ExtraLife:
+    case BlockSpecial::SkipLevels:
+    case BlockSpecial::Invincibility:
+    case BlockSpecial::Speed:
+    case BlockSpecial::TimeStop:
+    case BlockSpecial::ThrowBombs:
+    case BlockSpecial::KillsMonsters:
+    case BlockSpecial::Everything:
+      break;
+
+    case BlockSpecial::CreatesMonsters:
+    case BlockSpecial::Timer:
+      this->frames_until_action = timer_value;
+      break;
+
+    case BlockSpecial::Indestructible:
+      this->clear_flags(Block::Flag::Destructible);
+      break;
+
+    case BlockSpecial::IndestructibleAndImmovable:
+      this->clear_flags(Block::Flag::Pushable | Block::Flag::Destructible);
+      break;
+
+    case BlockSpecial::Immovable:
+      this->clear_flags(Block::Flag::Pushable);
+      break;
+
+    case BlockSpecial::Brittle:
+      this->set_flags(Block::Flag::Brittle);
+      break;
+
+    case BlockSpecial::Bouncy:
+      this->set_flags(Block::Flag::Bouncy);
+      break;
+
+    case BlockSpecial::Bomb:
+      this->set_flags(Block::Flag::IsBomb);
+      break;
+
+    case BlockSpecial::BouncyBomb:
+      this->set_flags(Block::Flag::IsBomb | Block::Flag::DelayedBomb);
+      break;
+  }
 }
 
 bool Block::has_flags(uint64_t flags) const {
@@ -555,54 +624,11 @@ LevelState::LevelState(const GenerationParameters& params) : params(params),
       auto block_it = remaining_blocks.begin();
       advance(block_it, rand() % remaining_blocks.size()); // O(n), sigh...
 
-      auto& block = *block_it;
-      block->special = special_it.first;
-
-      switch (block->special) {
-        case BlockSpecial::None:
-          break; // just leave this out of the map, doofus
-
-        case BlockSpecial::CreatesMonsters:
-          block->frames_until_next_monster = this->frames_between_monsters;
-          block->owner = this->player;
-        case BlockSpecial::Points:
-        case BlockSpecial::ExtraLife:
-        case BlockSpecial::SkipLevels:
-        case BlockSpecial::Invincibility:
-        case BlockSpecial::Speed:
-        case BlockSpecial::TimeStop:
-        case BlockSpecial::ThrowBombs:
-        case BlockSpecial::KillsMonsters:
-          break;
-
-        case BlockSpecial::Indestructible:
-          block->clear_flags(Block::Flag::Destructible);
-          break;
-
-        case BlockSpecial::IndestructibleAndImmovable:
-          block->clear_flags(Block::Flag::Pushable | Block::Flag::Destructible);
-          break;
-
-        case BlockSpecial::Immovable:
-          block->clear_flags(Block::Flag::Pushable);
-          break;
-
-        case BlockSpecial::Brittle:
-          block->set_flags(Block::Flag::Brittle);
-          break;
-
-        case BlockSpecial::Bouncy:
-          block->set_flags(Block::Flag::Bouncy);
-          break;
-
-        case BlockSpecial::Bomb:
-          block->set_flags(Block::Flag::IsBomb);
-          break;
-
-        case BlockSpecial::BouncyBomb:
-          block->set_flags(Block::Flag::IsBomb | Block::Flag::DelayedBomb);
-          break;
+      int64_t timer_value = this->frames_between_monsters;
+      if (special_it.first == BlockSpecial::Timer) {
+        timer_value = (this->frames_between_monsters * 2) + rand() % (this->frames_between_monsters * 2);
       }
+      (*block_it)->set_special(special_it.first, timer_value);
 
       remaining_blocks.erase(block_it);
     }
@@ -986,11 +1012,27 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
   // 4. monster specials attenuate and eventually disappear
   // 5. blocks are moved
   // 6. players are moved
-  // 7. moster generators attenuate, and generate monsters if necessary
+  // 7. timed blocks attenuate (monster generators and timer blocks)
   // 8. explosions attenuate
   // this order means that we never have to e.g. find out where a block/monster
   // used to be before executing this frame, since everything that depends on
   // alignment (especially step 2) happens before any motion is applied.
+
+  // Timer and LineUp blocks randomly choose specials from this list
+  static const vector<BlockSpecial> random_specials({
+      BlockSpecial::Points,
+      BlockSpecial::Indestructible,
+      BlockSpecial::IndestructibleAndImmovable,
+      BlockSpecial::Immovable,
+      BlockSpecial::Brittle,
+      BlockSpecial::Bomb,
+      BlockSpecial::Bouncy,
+      BlockSpecial::BouncyBomb,
+      BlockSpecial::Invincibility,
+      BlockSpecial::Speed,
+      BlockSpecial::TimeStop,
+      BlockSpecial::ThrowBombs,
+      BlockSpecial::KillsMonsters});
 
   // collect events that occurred during this frame (this is used for playing
   // sounds)
@@ -1339,7 +1381,62 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
         (!block->has_flags(Block::Flag::DelayedBomb) || ((block->x_speed == 0) && (block->y_speed == 0)))) {
       ret |= this->apply_explosion(block);
 
-    // (5.4.2) there was a collision, and the block didn't explode. play the
+    // (5.4.2) if the block stopped and is a LineUp, check if it's lined up with
+    // other LineUp blocks
+    } else if ((block->special == BlockSpecial::LineUp) &&
+        this->is_aligned(block->x) && this->is_aligned(block->y) &&
+        (block->x_speed == 0) && (block->y_speed == 0)) {
+      auto left_block = find_block(block->x - this->params.grid_pitch, block->y);
+      auto left2_block = find_block(block->x - 2 * this->params.grid_pitch, block->y);
+      auto right_block = find_block(block->x + this->params.grid_pitch, block->y);
+      auto right2_block = find_block(block->x + 2 * this->params.grid_pitch, block->y);
+      auto up_block = find_block(block->x, block->y - this->params.grid_pitch);
+      auto up2_block = find_block(block->x, block->y - 2 * this->params.grid_pitch);
+      auto down_block = find_block(block->x, block->y + this->params.grid_pitch);
+      auto down2_block = find_block(block->x, block->y + 2 * this->params.grid_pitch);
+      vector<vector<shared_ptr<Block>>> formations({
+          // 5-block formations first
+          {left2_block, left_block, block, right_block, right2_block},
+          {up2_block, up_block, block, down_block, down2_block},
+
+          // 4-block formations
+          {left2_block, left_block, block, right_block},
+          {left_block, block, right_block, right2_block},
+          {up2_block, up_block, block, down_block},
+          {up_block, block, down_block, down2_block},
+
+          // 3-block formations
+          {left2_block, left_block, block},
+          {left_block, block, right_block},
+          {block, right_block, right2_block},
+          {up2_block, up_block, block},
+          {up_block, block, down_block},
+          {block, down_block, down2_block},
+      });
+
+      for (auto& formation : formations) {
+        size_t blocks_with_special = 0;
+        for (auto& block : formation) {
+          if (!block.get() || (block->special != BlockSpecial::LineUp)) {
+            break;
+          }
+          blocks_with_special++;
+        }
+        if (blocks_with_special != formation.size()) {
+          continue;
+        }
+
+        // at this point, the formation matched and should be resolved
+        for (auto& block : formation) {
+        block->set_special(random_specials[rand() % random_specials.size()],
+            this->frames_between_monsters);
+        }
+        break;
+      }
+
+      ret.events_mask |= Event::BlockStopped;
+
+    // (5.4.3) there was a collision, and the block didn't explode. play the
     // appropriate sound for this
     } else {
       bool stopped = (block->x_speed == 0) && (block->y_speed == 0);
@@ -1545,66 +1642,74 @@ LevelState::FrameEvents LevelState::exec_frame(int64_t impulses) {
     }
   }
 
-  // (7) attenuate monster generators
+  // (7) attenuate blocks
   for (auto block : this->blocks) {
-    if ((block->special != BlockSpecial::CreatesMonsters) ||
-        (block->integrity != 1.0)) {
+    if (block->integrity != 1.0) {
       continue;
     }
-    if (block->frames_until_next_monster == 0) {
-      // figure out where the monster can go
-      // TODO: don't iterate over all blocks 4 times, sigh
-      vector<Impulse> candidate_directions;
-      for (auto direction : all_directions) {
-        auto offsets = offsets_for_direction(direction);
-        // don't create a monster in the direction the block is moving (it would
-        // just get smashed immediately)
-        if (((offsets.first * block->x_speed) > 0) ||
-            ((offsets.second * block->y_speed) > 0)) {
-          continue;
+
+    if (block->frames_until_action == 0) {
+      if (block->special == BlockSpecial::Timer) {
+        block->set_special(random_specials[rand() % random_specials.size()],
+            this->frames_between_monsters);
+
+      } else if (block->special == BlockSpecial::CreatesMonsters) {
+        // figure out where the monster can go
+        // TODO: don't iterate over all blocks 4 times, sigh
+        vector<Impulse> candidate_directions;
+        for (auto direction : all_directions) {
+          auto offsets = offsets_for_direction(direction);
+          // don't create a monster in the direction the block is moving (it would
+          // just get smashed immediately)
+          if (((offsets.first * block->x_speed) > 0) ||
+              ((offsets.second * block->y_speed) > 0)) {
+            continue;
+          }
+          int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
+          int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
+          if (!this->is_within_bounds(target_x, target_y)) {
+            continue;
+          }
+          if (!this->space_is_empty(target_x, target_y)) {
+            continue;
+          }
+          candidate_directions.emplace_back(direction);
         }
-        int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
-        int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
-        if (!this->is_within_bounds(target_x, target_y)) {
-          continue;
+
+        if (candidate_directions.empty()) {
+          // kaboom
+          block->owner = this->player;
+          ret |= this->apply_explosion(block);
+        } else {
+          // create a monster
+          int64_t which = random_int(0, candidate_directions.size() - 1);
+
+          auto offsets = offsets_for_direction(candidate_directions[which]);
+          int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
+          int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
+
+          bool is_power_monster = false; // TODO: should randomly choose
+          auto& monster = *this->monsters.emplace(new Monster(
+              target_x, target_y, this->flags_for_monster(is_power_monster))).first;
+          monster->movement_policy = is_power_monster ?
+              this->params.power_monster_movement_policy :
+              this->params.basic_monster_movement_policy;
+          monster->facing_direction = candidate_directions[which];
+          monster->block_destroy_rate = this->params.block_destroy_rate;
+          monster->move_speed = is_power_monster ? this->params.power_monster_move_speed : this->params.basic_monster_move_speed;
+          monster->push_speed = this->params.push_speed;
+          monster->x_speed = offsets.first * monster->move_speed;
+          monster->y_speed = offsets.second * monster->move_speed;
+          monster->integrity = 1.0;
+
+          ret.events_mask |= Event::MonsterCreated;
+
+          block->frames_until_action = this->frames_between_monsters;
         }
-        if (!this->space_is_empty(target_x, target_y)) {
-          continue;
-        }
-        candidate_directions.emplace_back(direction);
       }
 
-      if (candidate_directions.empty()) {
-        // kaboom
-        ret |= this->apply_explosion(block);
-      } else {
-        // create a monster
-        int64_t which = random_int(0, candidate_directions.size() - 1);
-
-        auto offsets = offsets_for_direction(candidate_directions[which]);
-        int64_t target_x = block->x + offsets.first * this->params.grid_pitch;
-        int64_t target_y = block->y + offsets.second * this->params.grid_pitch;
-
-        bool is_power_monster = false; // TODO: should randomly choose
-        auto& monster = *this->monsters.emplace(new Monster(
-            target_x, target_y, this->flags_for_monster(is_power_monster))).first;
-        monster->movement_policy = is_power_monster ?
-            this->params.power_monster_movement_policy :
-            this->params.basic_monster_movement_policy;
-        monster->facing_direction = candidate_directions[which];
-        monster->block_destroy_rate = this->params.block_destroy_rate;
-        monster->move_speed = is_power_monster ? this->params.power_monster_move_speed : this->params.basic_monster_move_speed;
-        monster->push_speed = this->params.push_speed;
-        monster->x_speed = offsets.first * monster->move_speed;
-        monster->y_speed = offsets.second * monster->move_speed;
-        monster->integrity = 1.0;
-
-        ret.events_mask |= Event::MonsterCreated;
-
-        block->frames_until_next_monster = this->frames_between_monsters;
-      }
     } else {
-      block->frames_until_next_monster--;
+      block->frames_until_action--;
     }
   }
 
@@ -1676,6 +1781,8 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
               this->score_for_monster(false), 0, 0, BlockSpecial::None, block->x, block->y);
         }
       case BlockSpecial::None:
+      case BlockSpecial::Timer:
+      case BlockSpecial::LineUp:
       case BlockSpecial::Immovable:
       case BlockSpecial::Brittle:
       case BlockSpecial::Bouncy:
@@ -1692,6 +1799,22 @@ LevelState::FrameEvents LevelState::apply_push_impulse(shared_ptr<Block> block,
       case BlockSpecial::SkipLevels:
         if (responsible_monster.get()) {
           ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, 4, BlockSpecial::None, block->x, block->y);
+        }
+        ret.events_mask |= Event::BonusCollected;
+        break;
+
+      case BlockSpecial::Everything:
+        if (responsible_monster.get()) {
+          static const vector<BlockSpecial> specials({
+              BlockSpecial::Invincibility,
+              BlockSpecial::Speed,
+              BlockSpecial::TimeStop,
+              BlockSpecial::ThrowBombs,
+              BlockSpecial::KillsMonsters});
+          for (BlockSpecial special : specials) {
+            responsible_monster->add_special(special, 300);
+          }
+          ret.scores.emplace_back(responsible_monster, nullptr, 0, 0, 0, block->special, block->x, block->y);
         }
         ret.events_mask |= Event::BonusCollected;
         break;
