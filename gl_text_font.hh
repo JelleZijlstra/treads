@@ -1,5 +1,4 @@
-#ifndef __GLTEXTFONT_H
-#define __GLTEXTFONT_H
+#pragma once
 
 #include <vector>
 
@@ -944,5 +943,3 @@ static const vector<vector<bool>> font({
     0,0,0,0,0,
     0,0,0,0,0},//0x83 (small right arrow)
 });
-
-#endif // __GLTEXTFONT_H

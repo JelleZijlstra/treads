@@ -14,10 +14,10 @@
 #include <GLFW/glfw3.h>
 
 #include <deque>
-#include <list>
 #include <phosg/Hash.hh>
 #include <phosg/Image.hh>
 #include <phosg/JSON.hh>
+#include <phosg/Time.hh>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -26,7 +26,6 @@
 #include "gl_text.hh"
 #include "level.hh"
 #include "maze.hh"
-#include "util.hh"
 
 using namespace std;
 
@@ -39,6 +38,13 @@ enum Phase {
   Playing = 0,
   Paused,
 };
+
+
+
+// TODO use projection matrix to make this unnecessary
+static float to_window(float x, float w) {
+  return ((x / w) * 2) - 1;
+}
 
 
 
