@@ -14,6 +14,7 @@
 #include <GLFW/glfw3.h>
 
 #include <deque>
+#include <phosg/Filesystem.hh>
 #include <phosg/Hash.hh>
 #include <phosg/Image.hh>
 #include <phosg/JSON.hh>
@@ -740,11 +741,16 @@ static void glfw_error_cb(int error, const char* description) {
 
 
 
-static void add_sound(
+static bool add_sound(
     unordered_map<Event, unique_ptr<SampledSound>>& event_to_sound, Event event,
     const string& filename) {
-  event_to_sound.emplace(piecewise_construct, forward_as_tuple(event),
-      forward_as_tuple(new SampledSound(filename.c_str())));
+  try {
+    event_to_sound.emplace(piecewise_construct, forward_as_tuple(event),
+        forward_as_tuple(new SampledSound(filename.c_str())));
+    return true;
+  } catch (const cannot_open_file&) {
+    return false;
+  }
 }
 
 static void add_block_special_image(BlockSpecial special,
