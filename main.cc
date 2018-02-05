@@ -330,11 +330,13 @@ static void render_level_state(shared_ptr<const LevelState> game,
   }
   lines.emplace_back(string_printf("%.1f%%", game->current_score_proportion() * 100.0));
 
+  glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ZERO);
   float y = -0.9;
   for (const auto& s : lines) {
     draw_text(-0.99, y, 0.0, 0.8, 0.0, 1.0, aspect_ratio, 0.01, false, "%s", s.c_str());
     y += 0.1;
   }
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 
