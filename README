@@ -10,5 +10,6 @@ blocks bounce and can squish you too!
 Building from source:
 - Install Xcode (or some other variant of GCC).
 - Install GLFW (http://www.glfw.org/).
+- Install phosg (https://github.com/fuzziqersoftware/phosg).
 - Run `make`. This will create Treads.app.
 - Run treads.app. Play the game. Be impressed with the graphics and sound.
